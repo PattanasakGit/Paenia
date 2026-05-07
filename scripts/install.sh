@@ -2,14 +2,15 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-USER_DIR="$HOME/Library/Application Support/Cursor/User"
-APP_NAME="Cursor Theme Customizer.app"
+APP_DIR="$HOME/Applications"
+APP_NAME="Workbench Theme Studio.app"
 
 "$ROOT/scripts/build.sh"
 
-ditto "$ROOT/build/$APP_NAME" "$USER_DIR/$APP_NAME"
-cp "$ROOT/src/cursor-minimal-dark-theme.mjs" "$USER_DIR/cursor-minimal-dark-theme.mjs"
+mkdir -p "$APP_DIR"
+ditto "$ROOT/build/$APP_NAME" "$APP_DIR/$APP_NAME"
+mkdir -p "$HOME/Library/Application Support/Workbench Theme Studio"
+cp "$ROOT/src/workbench-theme-generator.mjs" "$HOME/Library/Application Support/Workbench Theme Studio/workbench-theme-generator.mjs"
 
-echo "Installed app: $USER_DIR/$APP_NAME"
-echo "Installed generator: $USER_DIR/cursor-minimal-dark-theme.mjs"
-
+echo "Installed app: $APP_DIR/$APP_NAME"
+echo "Installed generator: $HOME/Library/Application Support/Workbench Theme Studio/workbench-theme-generator.mjs"

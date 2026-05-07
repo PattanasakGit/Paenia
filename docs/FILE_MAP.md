@@ -9,10 +9,10 @@ src/CursorThemeCustomizer.swift
 Main SwiftUI native macOS app. Contains UI, model, parsing, backup, apply, and Node detection.
 
 ```text
-src/cursor-minimal-dark-theme.mjs
+src/workbench-theme-generator.mjs
 ```
 
-Theme generator. Writes generated color blocks into Cursor `settings.json`.
+Theme generator. Writes generated color blocks into the selected editor `settings.json`.
 
 ```text
 src/Info.plist
@@ -24,13 +24,13 @@ macOS app bundle metadata. Includes `CFBundleIconFile = AppIcon`.
 scripts/build.sh
 ```
 
-Builds app bundle into `build/Cursor Theme Customizer.app`.
+Builds app bundle into `build/Workbench Theme Studio.app`.
 
 ```text
 scripts/install.sh
 ```
 
-Installs app and generator into Cursor User folder.
+Installs the app into `~/Applications` and the generator into Workbench Theme Studio app support.
 
 ```text
 scripts/make_icon.py
@@ -47,26 +47,31 @@ assets/icon-source.png
 
 Current app icon assets.
 
-## Cursor Runtime Files
-
 ```text
-~/Library/Application Support/Cursor/User/settings.json
+docs/SUPPORTED_APPS.md
 ```
 
-Cursor user settings. The generator replaces these blocks:
+Built-in app targets and known macOS settings paths.
+
+## Runtime Files
+
+```text
+~/Library/Application Support/<target>/User/settings.json
+```
+
+Target editor user settings. The generator replaces these blocks:
 
 - `workbench.colorCustomizations`
 - `editor.tokenColorCustomizations`
 
 ```text
-~/Library/Application Support/Cursor/User/cursor-minimal-dark-theme.mjs
+~/Library/Application Support/Workbench Theme Studio/workbench-theme-generator.mjs
 ```
 
 Installed generator used by the app.
 
 ```text
-~/Library/Application Support/Cursor/User/Cursor Theme Customizer.app
+~/Applications/Workbench Theme Studio.app
 ```
 
 Installed native app.
-

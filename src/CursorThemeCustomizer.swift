@@ -1,10 +1,43 @@
 import SwiftUI
 import AppKit
 
-let userDir = FileManager.default.homeDirectoryForCurrentUser
-  .appendingPathComponent("Library/Application Support/Cursor/User")
-let generatorURL = userDir.appendingPathComponent("cursor-minimal-dark-theme.mjs")
-let settingsURL = userDir.appendingPathComponent("settings.json")
+let appSupportRoot = FileManager.default.homeDirectoryForCurrentUser
+  .appendingPathComponent("Library/Application Support")
+let studioDir = appSupportRoot.appendingPathComponent("Workbench Theme Studio")
+let generatorURL = studioDir.appendingPathComponent("workbench-theme-generator.mjs")
+
+struct EditorTarget: Identifiable, Hashable {
+  let id: String
+  let name: String
+  let appSupportName: String
+  let bundleID: String?
+  let supportLevel: String
+
+  var userDir: URL {
+    appSupportRoot.appendingPathComponent(appSupportName).appendingPathComponent("User")
+  }
+
+  var settingsURL: URL {
+    userDir.appendingPathComponent("settings.json")
+  }
+
+  var isDetected: Bool {
+    FileManager.default.fileExists(atPath: userDir.path) ||
+      (bundleID.flatMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) } != nil)
+  }
+}
+
+let editorTargets: [EditorTarget] = [
+  EditorTarget(id: "cursor", name: "Cursor", appSupportName: "Cursor", bundleID: "com.todesktop.230313mzl4w4u92", supportLevel: "Detected"),
+  EditorTarget(id: "vscode", name: "Visual Studio Code", appSupportName: "Code", bundleID: "com.microsoft.VSCode", supportLevel: "Official"),
+  EditorTarget(id: "antigravity", name: "Antigravity", appSupportName: "Antigravity", bundleID: "com.google.antigravity", supportLevel: "VS Code-family"),
+  EditorTarget(id: "trae", name: "Trae", appSupportName: "Trae", bundleID: "com.trae.app", supportLevel: "VS Code-family"),
+  EditorTarget(id: "windsurf", name: "Windsurf", appSupportName: "Windsurf", bundleID: nil, supportLevel: "VS Code-family"),
+  EditorTarget(id: "vscodium", name: "VSCodium", appSupportName: "VSCodium", bundleID: "com.vscodium", supportLevel: "VS Code-family"),
+  EditorTarget(id: "kiro", name: "Kiro", appSupportName: "Kiro", bundleID: nil, supportLevel: "VS Code-family"),
+  EditorTarget(id: "positron", name: "Positron", appSupportName: "Positron", bundleID: nil, supportLevel: "VS Code-family"),
+  EditorTarget(id: "code-oss", name: "Code - OSS", appSupportName: "Code - OSS", bundleID: nil, supportLevel: "VS Code-family")
+]
 
 struct ThemePreset: Identifiable, Hashable {
   let id: String
@@ -267,6 +300,8 @@ final class ThemeModel: ObservableObject {
   @Published var selectedPreset = presets[0]
   @Published var selectedBaseCategory = baseCategories[0]
   @Published var selectedDetailCategoryID = "surfaces"
+  @Published var activeTargetID: String = editorTargets.first(where: { $0.id == "cursor" })?.id ?? editorTargets[0].id
+  @Published var targetApplyStates: [String: Bool] = Dictionary(uniqueKeysWithValues: editorTargets.map { ($0.id, $0.id == "cursor") })
   @Published var status = "Ready"
 
   init() {
@@ -275,6 +310,21 @@ final class ThemeModel: ObservableObject {
 
   var selectedDetailCategory: ColorCategory {
     detailCategories.first { $0.id == selectedDetailCategoryID } ?? detailCategories.first ?? ColorCategory(id: "empty", title: "Detailed Colors", subtitle: "ยังไม่พบสีจาก settings.json", symbol: "slider.horizontal.3", keys: [])
+  }
+
+  var activeTarget: EditorTarget {
+    editorTargets.first { $0.id == activeTargetID } ?? editorTargets[0]
+  }
+
+  var applyTargets: [EditorTarget] {
+    let selected = editorTargets.filter { targetApplyStates[$0.id] == true }
+    return selected.isEmpty ? [activeTarget] : selected
+  }
+
+  func setActiveTarget(_ target: EditorTarget) {
+    activeTargetID = target.id
+    targetApplyStates[target.id] = true
+    reload()
   }
 
   func reload() {
@@ -310,8 +360,8 @@ final class ThemeModel: ObservableObject {
         if key == "glass.theme.customTintIntensity" { tintIntensity = Int(value) ?? tintIntensity }
       }
 
-      let settings = try String(contentsOf: settingsURL, encoding: .utf8)
-      let workbenchBody = try regexCapture(#""workbench\.colorCustomizations":\s*\{([\s\S]*?)\n\s*\},\n\s*"editor\.tokenColorCustomizations""#, in: settings) ?? ""
+      let settings = (try? String(contentsOf: activeTarget.settingsURL, encoding: .utf8)) ?? "{\n}\n"
+      let workbenchBody = try regexCapture(#""workbench\.colorCustomizations":\s*\{([\s\S]*?)\n\s*\}"#, in: settings) ?? ""
       let parsedDetail = try parseStringColorPairs(from: workbenchBody)
       let parsedOverrides = try parseStringColorPairs(from: overrideBody)
 
@@ -324,7 +374,7 @@ final class ThemeModel: ObservableObject {
       if !detailCategories.contains(where: { $0.id == selectedDetailCategoryID }) {
         selectedDetailCategoryID = detailCategories.first?.id ?? "surfaces"
       }
-      status = "Loaded \(nextColors.count) base colors, \(parsedDetail.values.count) detailed colors"
+      status = "Loaded \(activeTarget.name): \(nextColors.count) base colors, \(parsedDetail.values.count) detailed colors"
     } catch {
       status = "Reload failed: \(error.localizedDescription)"
     }
@@ -340,7 +390,9 @@ final class ThemeModel: ObservableObject {
   func backup() throws -> [URL] {
     let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
     var results: [URL] = []
-    for url in [generatorURL, settingsURL] where FileManager.default.fileExists(atPath: url.path) {
+    var urls = [generatorURL]
+    urls.append(contentsOf: applyTargets.map { $0.settingsURL })
+    for url in urls where FileManager.default.fileExists(atPath: url.path) {
       let backup = uniqueBackupURL(for: url, stamp: stamp)
       try FileManager.default.copyItem(at: url, to: backup)
       results.append(backup)
@@ -397,28 +449,35 @@ final class ThemeModel: ObservableObject {
           .stringByReplacingMatches(in: text, range: NSRange(text.startIndex..<text.endIndex, in: text), withTemplate: "const uiOverrides = {\n\(overrideLines)\n};")
       } else {
         text = try NSRegularExpression(pattern: #"(const ui = \{[\s\S]*?\n\};)"#)
-          .stringByReplacingMatches(in: text, range: NSRange(text.startIndex..<text.endIndex, in: text), withTemplate: "$1\n\n// Direct per-setting overrides written by Cursor Theme Customizer.\n// Keep this object small: base palette colors still drive everything else.\nconst uiOverrides = {\n\(overrideLines)\n};")
+          .stringByReplacingMatches(in: text, range: NSRange(text.startIndex..<text.endIndex, in: text), withTemplate: "$1\n\n// Direct per-setting overrides written by Workbench Theme Studio.\n// Keep this object small: base palette colors still drive everything else.\nconst uiOverrides = {\n\(overrideLines)\n};")
       }
 
       text = text.replacingOccurrences(of: "${Object.entries(ui)\n  .map", with: "${Object.entries({ ...ui, ...uiOverrides })\n  .map")
       try text.write(to: generatorURL, atomically: true, encoding: .utf8)
 
-      let process = Process()
-      let pipe = Pipe()
-      process.executableURL = nodeExecutableURL()
-      process.arguments = nodeArguments(generatorPath: generatorURL.path)
-      process.standardError = pipe
-      process.standardOutput = pipe
-      try process.run()
-      process.waitUntilExit()
-      guard process.terminationStatus == 0 else {
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        throw NSError(domain: "Theme", code: 2, userInfo: [NSLocalizedDescriptionKey: output.isEmpty ? "node generator failed" : output])
+      var appliedNames: [String] = []
+      for target in applyTargets {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = nodeExecutableURL()
+        process.arguments = nodeArguments(generatorPath: generatorURL.path)
+        process.environment = (ProcessInfo.processInfo.environment).merging([
+          "WORKBENCH_SETTINGS_PATH": target.settingsURL.path
+        ]) { _, new in new }
+        process.standardError = pipe
+        process.standardOutput = pipe
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+          let data = pipe.fileHandleForReading.readDataToEndOfFile()
+          let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+          throw NSError(domain: "Theme", code: 2, userInfo: [NSLocalizedDescriptionKey: output.isEmpty ? "node generator failed for \(target.name)" : output])
+        }
+        appliedNames.append(target.name)
       }
 
       reload()
-      status = "Applied to Cursor. Reload Cursor window if Glass cache stays active."
+      status = "Applied to \(appliedNames.joined(separator: ", ")). Reload editor windows if colors are cached."
     } catch {
       status = "Apply failed: \(error.localizedDescription)"
     }
@@ -588,8 +647,8 @@ struct ContentView: View {
           AppMark(colors: model.colors)
             .frame(width: 44, height: 44)
           VStack(alignment: .leading, spacing: 2) {
-            Text("Cursor Theme").font(.title2.bold())
-            Text("Minimal Glass Editor").foregroundStyle(.secondary)
+            Text("Workbench Theme").font(.title2.bold())
+            Text("VS Code-family Studio").foregroundStyle(.secondary)
           }
         }
 
@@ -601,6 +660,7 @@ struct ContentView: View {
         .pickerStyle(.segmented)
         .frame(maxWidth: .infinity)
 
+        targetCard
         presetCard
         groupsCard
         tintCard
@@ -610,6 +670,52 @@ struct ContentView: View {
       .frame(maxWidth: .infinity, alignment: .topLeading)
     }
     .background(.ultraThinMaterial)
+  }
+
+  private var targetCard: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Label("Target Apps", systemImage: "macwindow.on.rectangle")
+        .font(.headline)
+
+      Picker("Edit From", selection: Binding(
+        get: { model.activeTargetID },
+        set: { id in
+          if let target = editorTargets.first(where: { $0.id == id }) {
+            model.setActiveTarget(target)
+          }
+        }
+      )) {
+        ForEach(editorTargets) { target in
+          Text(target.name).tag(target.id)
+        }
+      }
+      .pickerStyle(.menu)
+      .frame(maxWidth: .infinity, alignment: .leading)
+
+      VStack(spacing: 8) {
+        ForEach(editorTargets) { target in
+          Toggle(isOn: Binding(
+            get: { model.targetApplyStates[target.id] ?? false },
+            set: { model.targetApplyStates[target.id] = $0 }
+          )) {
+            HStack(spacing: 8) {
+              Circle()
+                .fill(target.isDetected ? Color.green : Color.secondary.opacity(0.35))
+                .frame(width: 8, height: 8)
+              VStack(alignment: .leading, spacing: 1) {
+                Text(target.name).font(.callout.weight(.semibold))
+                Text(target.appSupportName + " / " + target.supportLevel)
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+                  .lineLimit(1)
+              }
+            }
+          }
+          .toggleStyle(.checkbox)
+        }
+      }
+    }
+    .glassCard()
   }
 
   private var presetCard: some View {
@@ -688,7 +794,7 @@ struct ContentView: View {
 
   private var actionsCard: some View {
     VStack(spacing: 10) {
-      Button("Apply to Cursor") { model.apply() }
+      Button("Apply to Selected Apps") { model.apply() }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
         .frame(maxWidth: .infinity)
@@ -706,7 +812,7 @@ struct ContentView: View {
         Button("Reload") { model.reload() }
           .frame(maxWidth: .infinity)
         Button {
-          NSWorkspace.shared.open(userDir)
+          NSWorkspace.shared.open(model.activeTarget.userDir)
         } label: {
           Image(systemName: "folder")
             .frame(maxWidth: .infinity)

@@ -20,13 +20,13 @@ The app expects these paths:
 
 ```text
 ~/Library/Application Support/Cursor/User/settings.json
-~/Library/Application Support/Cursor/User/cursor-minimal-dark-theme.mjs
+~/Library/Application Support/Workbench Theme Studio/workbench-theme-generator.mjs
 ```
 
 The app installs to:
 
 ```text
-~/Library/Application Support/Cursor/User/Cursor Theme Customizer.app
+~/Applications/Workbench Theme Studio.app
 ```
 
 ## Functional Requirements
@@ -49,4 +49,3 @@ The app installs to:
 - Sidebar menu widths must be consistent.
 - App icon must be included in bundle resources.
 - No dependency on npm packages.
-

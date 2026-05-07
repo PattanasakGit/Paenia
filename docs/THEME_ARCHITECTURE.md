@@ -5,8 +5,8 @@
 ```text
 SwiftUI App
   edits base colors and uiOverrides
-    -> cursor-minimal-dark-theme.mjs
-      generates workbench.colorCustomizations
+    -> workbench-theme-generator.mjs
+      generates workbench.colorCustomizations for selected target settings paths
       generates editor.tokenColorCustomizations
         -> settings.json
           -> Cursor UI after reload/apply
@@ -63,4 +63,3 @@ TextMate token colors for editor syntax highlighting.
 - Add export/import presets.
 - Add preview screenshot comparison.
 - Add richer app icon generation workflow.
-

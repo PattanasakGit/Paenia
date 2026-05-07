@@ -1,6 +1,8 @@
 import fs from "node:fs";
+import path from "node:path";
 
 const settingsPath =
+  process.env.WORKBENCH_SETTINGS_PATH ||
   "/Users/pattanasak/Library/Application Support/Cursor/User/settings.json";
 
 const themeSettings = {
@@ -163,7 +165,7 @@ const ui = {
   "gitDecoration.stageDeletedResourceForeground": colors.red,
 };
 
-// Direct per-setting overrides written by Cursor Theme Customizer.
+// Direct per-setting overrides written by Workbench Theme Studio.
 // Keep this object small: base palette colors still drive everything else.
 const uiOverrides = {
 };
@@ -213,9 +215,8 @@ const indent = (value, spaces = 2) =>
     .trimStart();
 
 const colorBlock = `"workbench.colorCustomizations": {
-    // Generated from cursor-minimal-dark-theme.mjs
-    // Change the colors object in that file, then run:
-    // node "/Users/pattanasak/Library/Application Support/Cursor/User/cursor-minimal-dark-theme.mjs"
+    // Generated from Workbench Theme Studio.
+    // Change the colors object in workbench-theme-generator.mjs or use the native app.
 ${Object.entries({ ...ui, ...uiOverrides })
   .map(([key, value]) => `    ${JSON.stringify(key)}: ${JSON.stringify(value)}`)
   .join(",\n")}
@@ -235,7 +236,21 @@ const tokenBlock = `"editor.tokenColorCustomizations": {
     )}
   }`;
 
-let settings = fs.readFileSync(settingsPath, "utf8");
+const replaceTopLevelBlock = (settings, key, block) => {
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const matcher = new RegExp(`"${escaped}"\\s*:\\s*\\{[\\s\\S]*?\\n\\s*\\}(,?)`);
+
+  if (matcher.test(settings)) {
+    return settings.replace(matcher, `${block}$1`);
+  }
+
+  return settings.replace(/^\{\n?/, `{\n  ${block},\n`);
+};
+
+fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+let settings = fs.existsSync(settingsPath)
+  ? fs.readFileSync(settingsPath, "utf8")
+  : "{\n}\n";
 
 for (const [key, value] of Object.entries(themeSettings)) {
   const serialized = `${JSON.stringify(key)}: ${JSON.stringify(value)}`;
@@ -249,13 +264,11 @@ for (const [key, value] of Object.entries(themeSettings)) {
 }
 
 settings = settings.replace(
-  /"workbench\.colorCustomizations":\s*\{[\s\S]*?\n  \},\n  "editor\.tokenColorCustomizations"/,
-  `${colorBlock},\n  "editor.tokenColorCustomizations"`,
+  /^\s*\{\s*\}\s*$/,
+  "{\n}\n",
 );
 
-settings = settings.replace(
-  /"editor\.tokenColorCustomizations":\s*\{[\s\S]*?\n  \},\n  \/\/----------------------------------------------------------/,
-  `${tokenBlock},\n  //----------------------------------------------------------`,
-);
+settings = replaceTopLevelBlock(settings, "workbench.colorCustomizations", colorBlock);
+settings = replaceTopLevelBlock(settings, "editor.tokenColorCustomizations", tokenBlock);
 
 fs.writeFileSync(settingsPath, settings);

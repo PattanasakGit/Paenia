@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleExecutable</key>
-  <string>Cursor Theme Customizer</string>
+  <string>Workbench Theme Studio</string>
   <key>CFBundleIdentifier</key>
-  <string>local.cursor-theme-customizer</string>
+  <string>local.workbench-theme-studio</string>
   <key>CFBundleName</key>
-  <string>Cursor Theme Customizer</string>
+  <string>Workbench Theme Studio</string>
   <key>CFBundleDisplayName</key>
-  <string>Cursor Theme Customizer</string>
+  <string>Workbench Theme Studio</string>
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>CFBundlePackageType</key>

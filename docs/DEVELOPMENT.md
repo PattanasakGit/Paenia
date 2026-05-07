@@ -9,7 +9,7 @@
 Output:
 
 ```text
-build/Cursor Theme Customizer.app
+build/Workbench Theme Studio.app
 ```
 
 ## Install App And Generator
@@ -21,24 +21,25 @@ build/Cursor Theme Customizer.app
 This copies:
 
 ```text
-build/Cursor Theme Customizer.app
-  -> ~/Library/Application Support/Cursor/User/Cursor Theme Customizer.app
+build/Workbench Theme Studio.app
+  -> ~/Applications/Workbench Theme Studio.app
 
-src/cursor-minimal-dark-theme.mjs
-  -> ~/Library/Application Support/Cursor/User/cursor-minimal-dark-theme.mjs
+src/workbench-theme-generator.mjs
+  -> ~/Library/Application Support/Workbench Theme Studio/workbench-theme-generator.mjs
 ```
 
 ## Run Generator Manually
 
 ```sh
-node "$HOME/Library/Application Support/Cursor/User/cursor-minimal-dark-theme.mjs"
+WORKBENCH_SETTINGS_PATH="$HOME/Library/Application Support/Cursor/User/settings.json" \
+  node "$HOME/Library/Application Support/Workbench Theme Studio/workbench-theme-generator.mjs"
 ```
 
 ## Verify App Bundle
 
 ```sh
-plutil -p "$HOME/Library/Application Support/Cursor/User/Cursor Theme Customizer.app/Contents/Info.plist"
-file "$HOME/Library/Application Support/Cursor/User/Cursor Theme Customizer.app/Contents/Resources/AppIcon.icns"
+plutil -p "$HOME/Applications/Workbench Theme Studio.app/Contents/Info.plist"
+file "$HOME/Applications/Workbench Theme Studio.app/Contents/Resources/AppIcon.icns"
 ```
 
 Expected:
@@ -77,4 +78,3 @@ Backups are created before apply. Existing backup names are not overwritten.
 ### Node Detection
 
 The app cannot assume shell PATH. Keep explicit Node detection for GUI launch contexts.
-

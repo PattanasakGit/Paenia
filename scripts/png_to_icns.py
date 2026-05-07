@@ -3,7 +3,7 @@ import struct
 from pathlib import Path
 
 png = Path("build/icon-source-sips.png").read_bytes()
-out = Path("build/Cursor Theme Customizer.app/Contents/Resources/AppIcon.icns")
+out = Path("build/Workbench Theme Studio.app/Contents/Resources/AppIcon.icns")
 
 # Minimal ICNS containing a 1024px PNG payload. macOS accepts the "ic10" PNG
 # element for Dock, Finder, and Stage Manager rendering.

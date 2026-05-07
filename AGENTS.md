@@ -1,6 +1,6 @@
 # AI Development Instructions
 
-This project is for continuing development of the Cursor Theme Customizer app.
+This project is for continuing development of the Workbench Theme Studio app.
 
 ## Safety
 
@@ -43,4 +43,3 @@ Keep the theme generator as the source of truth:
 - `tokenRules`: editor syntax colors.
 
 The app should not fight the generator. It should edit inputs to the generator.
-

@@ -1,11 +1,16 @@
-# Cursor Theme Customizer
+# Workbench Theme Studio
 
-Native macOS app for editing Cursor theme colors in a detailed, AI-maintainable way.
+Native macOS app for editing VS Code-family editor theme colors in a detailed, AI-maintainable way.
 
-The app edits:
+The app can edit:
 
+- `~/Library/Application Support/Code/User/settings.json`
 - `~/Library/Application Support/Cursor/User/settings.json`
-- `~/Library/Application Support/Cursor/User/cursor-minimal-dark-theme.mjs`
+- `~/Library/Application Support/Antigravity/User/settings.json`
+- `~/Library/Application Support/Trae/User/settings.json`
+- other VS Code-family `User/settings.json` locations
+
+See `docs/SUPPORTED_APPS.md` for the built-in target list and detected local apps.
 
 Main idea:
 
@@ -19,13 +24,13 @@ Main idea:
 Installed app:
 
 ```text
-~/Library/Application Support/Cursor/User/Cursor Theme Customizer.app
+~/Applications/Workbench Theme Studio.app
 ```
 
-Launcher:
+Generator:
 
 ```text
-~/Library/Application Support/Cursor/User/Open Native Cursor Theme Customizer.command
+~/Library/Application Support/Workbench Theme Studio/workbench-theme-generator.mjs
 ```
 
 ## Build
@@ -43,7 +48,7 @@ Launcher:
 ## Open
 
 ```sh
-open "$HOME/Library/Application Support/Cursor/User/Cursor Theme Customizer.app"
+open "$HOME/Applications/Workbench Theme Studio.app"
 ```
 
 ## App Features
@@ -51,6 +56,7 @@ open "$HOME/Library/Application Support/Cursor/User/Cursor Theme Customizer.app"
 - Native SwiftUI macOS app.
 - Minimal Glass style.
 - Sidebar with scrollable grouped navigation.
+- Multi-target app selection for VS Code-family editors.
 - Base Palette mode for editing shared variables.
 - Detailed Colors mode for editing individual `workbench.colorCustomizations` keys.
 - Clear labels, real setting keys, swatches, hex inputs, and color pickers.
@@ -68,4 +74,3 @@ Do not write directly to Cursor's SQLite state DB. Cursor/Glass stores runtime t
 ```
 
 Database access should be read-only unless explicitly approved.
-
