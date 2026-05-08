@@ -1,6 +1,6 @@
 # Workbench Theme Studio
 
-Native macOS app for editing VS Code-family editor theme colors in a detailed, AI-maintainable way.
+Native macOS app for editing VS Code-family editor theme colors with a live preview, organized presets, and a safe apply pipeline.
 
 The app can edit:
 
@@ -9,41 +9,45 @@ The app can edit:
 - `~/Library/Application Support/Antigravity/User/settings.json`
 - `~/Library/Application Support/Trae/User/settings.json`
 - other VS Code-family `User/settings.json` locations
+- any custom path the user adds (with validation)
 
-See `docs/SUPPORTED_APPS.md` for the built-in target list and detected local apps.
+## Architecture
 
-Main idea:
+- **`theme.json`** is the single source of truth — palette, ui template, overrides, token rules, target customisation, user presets.
+- **Pure Swift engine** (`ThemeCore.swift`) renders the document into each editor's `settings.json`. No Node.js / external runtime required.
+- **App chrome follows the loaded theme** — switching to a light preset flips the whole UI to a light color scheme.
 
-- Base palette variables live in `colors`.
-- Generated Cursor color keys live in `ui`.
-- Per-setting manual edits are stored in `uiOverrides`.
-- The app writes overrides, then runs the generator to update `settings.json`.
+```text
+SwiftUI App ──edit──▶ theme.json ──ThemeApplier──▶ each target's settings.json
+```
 
-## Current Installed App
+## Highlights
 
-Installed app:
+- **78 themed presets** grouped Dark / Light, with mini editor preview per card
+- **Save your own preset** from the current palette and reload it anytime
+- **Live IDE preview** in the inspector — uses real workbench colors from disk
+- **Per-target apply rules** — Cursor gets the full theme + Glass tint; other editors only get color customizations so their existing theme stays intact
+- **Brace-balanced settings.json patcher** — refuses to write a structurally broken file
+- **Backup-on-success** — every apply snapshots the file first; failed writes discard their snapshot, last 15 backups are retained per editor automatically
+- **Custom targets + path overrides** — pick any settings.json with 3-tier path validation
+- **Apply confirmation + result modal** — confirm targets before writing, success/partial/failure feedback after
+- **Thai tooltips and toolbar labels** — every button has a short label and a Thai description on hover
+
+## Installed Locations
 
 ```text
 ~/Applications/Workbench Theme Studio.app
+~/Library/Application Support/Workbench Theme Studio/theme.json
 ```
 
-Generator:
-
-```text
-~/Library/Application Support/Workbench Theme Studio/workbench-theme-generator.mjs
-```
-
-## Build
+## Build & Install
 
 ```sh
-./scripts/build.sh
+./scripts/build.sh      # build into build/Workbench Theme Studio.app
+./scripts/install.sh    # build + copy into ~/Applications and seed theme.json
 ```
 
-## Install
-
-```sh
-./scripts/install.sh
-```
+The installer only seeds `theme.json` if it does not already exist; existing user state is preserved across reinstalls.
 
 ## Open
 
@@ -51,23 +55,19 @@ Generator:
 open "$HOME/Applications/Workbench Theme Studio.app"
 ```
 
-## App Features
+## Keyboard Shortcuts
 
-- Native SwiftUI macOS app.
-- Minimal Glass style.
-- Sidebar with scrollable grouped navigation.
-- Multi-target app selection for VS Code-family editors.
-- Base Palette mode for editing shared variables.
-- Detailed Colors mode for editing individual `workbench.colorCustomizations` keys.
-- Clear labels, real setting keys, swatches, hex inputs, and color pickers.
-- Backup before apply.
-- Unique backup file names to avoid copy collisions.
-- Node detection for `nvm`, Volta, Homebrew, and system paths.
-- App icon bundled as `AppIcon.icns` for Dock and Stage Manager.
+| Shortcut | Action |
+|----------|--------|
+| `⌘S` | Apply (opens confirmation sheet) |
+| `⌘B` | Backup current targets |
+| `⌘R` | Reload theme.json + target settings.json |
+| `⌘,` | Preferences |
+| `⌥⌘I` | Toggle inspector pane |
 
 ## Important Rule
 
-Do not write directly to Cursor's SQLite state DB. Cursor/Glass stores runtime theme state in:
+Do not write directly to Cursor's SQLite state DB. Cursor stores runtime theme state in:
 
 ```text
 ~/Library/Application Support/Cursor/User/globalStorage/state.vscdb

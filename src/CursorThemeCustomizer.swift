@@ -4,30 +4,71 @@ import AppKit
 let appSupportRoot = FileManager.default.homeDirectoryForCurrentUser
   .appendingPathComponent("Library/Application Support")
 let studioDir = appSupportRoot.appendingPathComponent("Workbench Theme Studio")
-let generatorURL = studioDir.appendingPathComponent("workbench-theme-generator.mjs")
+let themeURL = studioDir.appendingPathComponent("theme.json")
 
-struct EditorTarget: Identifiable, Hashable {
-  let id: String
-  let name: String
-  let appSupportName: String
-  let bundleID: String?
-  let supportLevel: String
+enum DetectionStatus: String {
+  case ready = "พร้อม"
+  case willCreate = "พร้อมสร้าง"
+  case installedOnly = "ติดตั้งแล้ว"
+  case notFound = "ไม่พร้อม"
 
-  var userDir: URL {
-    appSupportRoot.appendingPathComponent(appSupportName).appendingPathComponent("User")
-  }
-
-  var settingsURL: URL {
-    userDir.appendingPathComponent("settings.json")
-  }
-
-  var isDetected: Bool {
-    FileManager.default.fileExists(atPath: userDir.path) ||
-      (bundleID.flatMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) } != nil)
+  var icon: String {
+    switch self {
+    case .ready: return "checkmark.seal.fill"
+    case .willCreate: return "plus.circle.fill"
+    case .installedOnly: return "circle.dotted"
+    case .notFound: return "xmark.circle"
+    }
   }
 }
 
-let editorTargets: [EditorTarget] = [
+struct EditorTarget: Identifiable, Hashable {
+  let id: String
+  var name: String
+  let appSupportName: String
+  let bundleID: String?
+  let supportLevel: String
+  var pathOverride: String? = nil
+  var isCustom: Bool = false
+
+  var defaultSettingsPath: String {
+    appSupportRoot
+      .appendingPathComponent(appSupportName)
+      .appendingPathComponent("User")
+      .appendingPathComponent("settings.json")
+      .path
+  }
+
+  var settingsURL: URL {
+    URL(fileURLWithPath: pathOverride ?? defaultSettingsPath)
+  }
+
+  var userDir: URL {
+    settingsURL.deletingLastPathComponent()
+  }
+
+  var detectionStatus: DetectionStatus {
+    let fm = FileManager.default
+    if fm.fileExists(atPath: settingsURL.path) {
+      return .ready
+    }
+    if fm.fileExists(atPath: userDir.path) {
+      return .willCreate
+    }
+    if let id = bundleID,
+       NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) != nil {
+      return .installedOnly
+    }
+    return .notFound
+  }
+
+  var isDetected: Bool {
+    let status = detectionStatus
+    return status == .ready || status == .willCreate || status == .installedOnly
+  }
+}
+
+let builtInTargets: [EditorTarget] = [
   EditorTarget(id: "cursor", name: "Cursor", appSupportName: "Cursor", bundleID: "com.todesktop.230313mzl4w4u92", supportLevel: "Detected"),
   EditorTarget(id: "vscode", name: "Visual Studio Code", appSupportName: "Code", bundleID: "com.microsoft.VSCode", supportLevel: "Official"),
   EditorTarget(id: "antigravity", name: "Antigravity", appSupportName: "Antigravity", bundleID: "com.google.antigravity", supportLevel: "VS Code-family"),
@@ -39,9 +80,73 @@ let editorTargets: [EditorTarget] = [
   EditorTarget(id: "code-oss", name: "Code - OSS", appSupportName: "Code - OSS", bundleID: nil, supportLevel: "VS Code-family")
 ]
 
+// MARK: - Path Validator
+
+enum PathValidation {
+  case ok
+  case warning(String)
+  case blocked(String)
+}
+
+enum PathValidator {
+  static let dangerousRoots = ["/System/", "/usr/", "/private/var/", "/Library/", "/bin/", "/sbin/"]
+
+  static func validate(_ path: String) -> PathValidation {
+    let normalized = (path as NSString).standardizingPath
+
+    // Hard blocks
+    for root in dangerousRoots where normalized.hasPrefix(root) {
+      return .blocked("Path อยู่ใน system area (\(root)) — ไม่อนุญาตเพื่อความปลอดภัย")
+    }
+    if normalized.contains(".app/") || normalized.contains(".bundle/") || normalized.contains(".framework/") {
+      return .blocked("ห้ามเขียนใน app bundle / framework")
+    }
+
+    let url = URL(fileURLWithPath: normalized)
+    let lowercased = normalized.lowercased()
+
+    // Soft warnings
+    if !lowercased.hasSuffix(".json") && !lowercased.hasSuffix(".jsonc") {
+      return .warning("Path ไม่ได้ลงท้ายด้วย .json หรือ .jsonc — แน่ใจไหม?")
+    }
+
+    let fm = FileManager.default
+    if fm.fileExists(atPath: normalized) {
+      guard let data = try? Data(contentsOf: url) else {
+        return .warning("เปิดไฟล์ไม่ได้ อาจไม่มีสิทธิ์อ่าน")
+      }
+      if data.count > 1_000_000 {
+        return .warning("ไฟล์ใหญ่ผิดปกติ (>1MB) — ใช่ settings.json จริงไหม?")
+      }
+      if let raw = String(data: data, encoding: .utf8), !raw.contains("workbench") && !raw.isEmpty {
+        return .warning("ไฟล์ไม่มี \"workbench.*\" — ไม่เหมือน settings.json ของ VS Code-family")
+      }
+    } else {
+      return .warning("ไฟล์ยังไม่มี — Apply จะสร้างใหม่")
+    }
+
+    if !normalized.hasSuffix("User/settings.json") {
+      return .warning("Path ไม่ตรงรูปแบบ \".../User/settings.json\" — ตั้งใจหรือเปล่า?")
+    }
+
+    return .ok
+  }
+}
+
 struct ThemePreset: Identifiable, Hashable {
   let id: String
   let colors: [String: String]
+
+  /// True when bg0 luminance is high enough to be a light theme.
+  var isLight: Bool {
+    let raw = (colors["bg0"] ?? "#000000")
+    let nsc = nsColor(from: raw)
+    let r = Double(nsc.redComponent)
+    let g = Double(nsc.greenComponent)
+    let b = Double(nsc.blueComponent)
+    let luminance = 0.299 * r + 0.587 * g + 0.114 * b
+    return luminance > 0.5
+  }
 }
 
 struct ColorMeta {
@@ -62,6 +167,20 @@ enum EditorMode: String, CaseIterable, Identifiable {
   case detailed = "Detailed Colors"
 
   var id: String { rawValue }
+
+  var icon: String {
+    switch self {
+    case .base: return "paintpalette.fill"
+    case .detailed: return "slider.horizontal.3"
+    }
+  }
+
+  var shortLabel: String {
+    switch self {
+    case .base: return "Palette"
+    case .detailed: return "Detailed"
+    }
+  }
 }
 
 let colorMeta: [String: ColorMeta] = [
@@ -99,6 +218,13 @@ let baseCategories: [ColorCategory] = [
 ]
 
 let presets: [ThemePreset] = [
+  // ── Signature ────────────────────────────────────────────────
+  ThemePreset(id: "Cyber Violet", colors: [
+    "bg0": "#08060F", "bg1": "#100B1F", "bg2": "#17102A", "bg3": "#241642", "bg4": "#34205F",
+    "fg0": "#FFF7FF", "fg1": "#E9D7FF", "fg2": "#B79CFF", "muted": "#7C6A99", "muted2": "#534566",
+    "border": "#9D4EDD", "accent": "#FF4FD8", "accentSoft": "#FF9BE8", "blue": "#00D4FF",
+    "green": "#5CFF95", "red": "#FF3864", "purple": "#C77DFF"
+  ]),
   ThemePreset(id: "Neon Dark", colors: [
     "bg0": "#05070A", "bg1": "#071018", "bg2": "#0A1620", "bg3": "#102536", "bg4": "#14354A",
     "fg0": "#F4FBFF", "fg1": "#C7E9FF", "fg2": "#7CCBFF", "muted": "#5D7A8C", "muted2": "#385363",
@@ -111,25 +237,465 @@ let presets: [ThemePreset] = [
     "border": "#273038", "accent": "#D9A86C", "accentSoft": "#F0C98B", "blue": "#7AA2F7",
     "green": "#9ECE6A", "red": "#F7768E", "purple": "#C099FF"
   ]),
-  ThemePreset(id: "Cyber Violet", colors: [
-    "bg0": "#08060F", "bg1": "#100B1F", "bg2": "#17102A", "bg3": "#241642", "bg4": "#34205F",
-    "fg0": "#FFF7FF", "fg1": "#E9D7FF", "fg2": "#B79CFF", "muted": "#7C6A99", "muted2": "#534566",
-    "border": "#9D4EDD", "accent": "#FF4FD8", "accentSoft": "#FF9BE8", "blue": "#00D4FF",
-    "green": "#5CFF95", "red": "#FF3864", "purple": "#C77DFF"
+
+  // ── Popular dark themes (inspired-by) ───────────────────────
+  ThemePreset(id: "Dracula", colors: [
+    "bg0": "#282A36", "bg1": "#21222C", "bg2": "#343746", "bg3": "#44475A", "bg4": "#6272A4",
+    "fg0": "#F8F8F2", "fg1": "#E0E0DC", "fg2": "#C7C7C2", "muted": "#6272A4", "muted2": "#44475A",
+    "border": "#BD93F9", "accent": "#FF79C6", "accentSoft": "#FFB8E5", "blue": "#8BE9FD",
+    "green": "#50FA7B", "red": "#FF5555", "purple": "#BD93F9"
+  ]),
+  ThemePreset(id: "Tokyo Night", colors: [
+    "bg0": "#1A1B26", "bg1": "#16161E", "bg2": "#1F2335", "bg3": "#292E42", "bg4": "#3B4261",
+    "fg0": "#C0CAF5", "fg1": "#A9B1D6", "fg2": "#7AA2F7", "muted": "#565F89", "muted2": "#3B4261",
+    "border": "#7AA2F7", "accent": "#7AA2F7", "accentSoft": "#9ECCFF", "blue": "#7DCFFF",
+    "green": "#9ECE6A", "red": "#F7768E", "purple": "#BB9AF7"
+  ]),
+  ThemePreset(id: "Tokyo Storm", colors: [
+    "bg0": "#24283B", "bg1": "#1F2335", "bg2": "#2A2F42", "bg3": "#343A52", "bg4": "#414868",
+    "fg0": "#C0CAF5", "fg1": "#A9B1D6", "fg2": "#9AA5CE", "muted": "#565F89", "muted2": "#414868",
+    "border": "#7AA2F7", "accent": "#BB9AF7", "accentSoft": "#C7B7FA", "blue": "#7DCFFF",
+    "green": "#9ECE6A", "red": "#F7768E", "purple": "#BB9AF7"
+  ]),
+  ThemePreset(id: "One Dark", colors: [
+    "bg0": "#282C34", "bg1": "#21252B", "bg2": "#2C313A", "bg3": "#3A3F4B", "bg4": "#4D5566",
+    "fg0": "#ABB2BF", "fg1": "#9DA5B4", "fg2": "#828997", "muted": "#5C6370", "muted2": "#4B5263",
+    "border": "#528BFF", "accent": "#61AFEF", "accentSoft": "#88C0FF", "blue": "#61AFEF",
+    "green": "#98C379", "red": "#E06C75", "purple": "#C678DD"
+  ]),
+  ThemePreset(id: "Monokai", colors: [
+    "bg0": "#272822", "bg1": "#1E1F1C", "bg2": "#2D2E27", "bg3": "#3E3D32", "bg4": "#49483E",
+    "fg0": "#F8F8F2", "fg1": "#CFCFC2", "fg2": "#75715E", "muted": "#75715E", "muted2": "#49483E",
+    "border": "#75715E", "accent": "#F92672", "accentSoft": "#FF6B9F", "blue": "#66D9EF",
+    "green": "#A6E22E", "red": "#F92672", "purple": "#AE81FF"
+  ]),
+  ThemePreset(id: "Solarized Dark", colors: [
+    "bg0": "#002B36", "bg1": "#073642", "bg2": "#0E4854", "bg3": "#1A5563", "bg4": "#2A6772",
+    "fg0": "#FDF6E3", "fg1": "#EEE8D5", "fg2": "#93A1A1", "muted": "#586E75", "muted2": "#475C63",
+    "border": "#268BD2", "accent": "#268BD2", "accentSoft": "#5DAEEC", "blue": "#268BD2",
+    "green": "#859900", "red": "#DC322F", "purple": "#6C71C4"
+  ]),
+  ThemePreset(id: "Nord", colors: [
+    "bg0": "#2E3440", "bg1": "#272B36", "bg2": "#3B4252", "bg3": "#434C5E", "bg4": "#4C566A",
+    "fg0": "#ECEFF4", "fg1": "#E5E9F0", "fg2": "#D8DEE9", "muted": "#7B88A1", "muted2": "#5E6779",
+    "border": "#88C0D0", "accent": "#88C0D0", "accentSoft": "#A3D2DE", "blue": "#81A1C1",
+    "green": "#A3BE8C", "red": "#BF616A", "purple": "#B48EAD"
+  ]),
+  ThemePreset(id: "Gruvbox Dark", colors: [
+    "bg0": "#282828", "bg1": "#1D2021", "bg2": "#32302F", "bg3": "#3C3836", "bg4": "#504945",
+    "fg0": "#FBF1C7", "fg1": "#EBDBB2", "fg2": "#D5C4A1", "muted": "#928374", "muted2": "#665C54",
+    "border": "#FE8019", "accent": "#FABD2F", "accentSoft": "#FFD777", "blue": "#83A598",
+    "green": "#B8BB26", "red": "#FB4934", "purple": "#D3869B"
+  ]),
+  ThemePreset(id: "Catppuccin Mocha", colors: [
+    "bg0": "#1E1E2E", "bg1": "#181825", "bg2": "#313244", "bg3": "#45475A", "bg4": "#585B70",
+    "fg0": "#CDD6F4", "fg1": "#BAC2DE", "fg2": "#A6ADC8", "muted": "#7F849C", "muted2": "#6C7086",
+    "border": "#CBA6F7", "accent": "#F5C2E7", "accentSoft": "#F5D6E9", "blue": "#89B4FA",
+    "green": "#A6E3A1", "red": "#F38BA8", "purple": "#CBA6F7"
+  ]),
+  ThemePreset(id: "Catppuccin Macchiato", colors: [
+    "bg0": "#24273A", "bg1": "#1E2030", "bg2": "#363A4F", "bg3": "#494D64", "bg4": "#5B6078",
+    "fg0": "#CAD3F5", "fg1": "#B8C0E0", "fg2": "#A5ADCB", "muted": "#8087A2", "muted2": "#6E738D",
+    "border": "#C6A0F6", "accent": "#F5BDE6", "accentSoft": "#F4D5EE", "blue": "#8AADF4",
+    "green": "#A6DA95", "red": "#ED8796", "purple": "#C6A0F6"
+  ]),
+  ThemePreset(id: "Rose Pine", colors: [
+    "bg0": "#191724", "bg1": "#1F1D2E", "bg2": "#26233A", "bg3": "#2A273F", "bg4": "#403D52",
+    "fg0": "#E0DEF4", "fg1": "#CECACD", "fg2": "#908CAA", "muted": "#6E6A86", "muted2": "#524F67",
+    "border": "#C4A7E7", "accent": "#EBBCBA", "accentSoft": "#F2D5C9", "blue": "#9CCFD8",
+    "green": "#3E8FB0", "red": "#EB6F92", "purple": "#C4A7E7"
+  ]),
+  ThemePreset(id: "Rose Pine Moon", colors: [
+    "bg0": "#232136", "bg1": "#2A273F", "bg2": "#393552", "bg3": "#3E3A56", "bg4": "#56526E",
+    "fg0": "#E0DEF4", "fg1": "#D4CDD4", "fg2": "#908CAA", "muted": "#6E6A86", "muted2": "#56526E",
+    "border": "#C4A7E7", "accent": "#EA9A97", "accentSoft": "#F2C2C0", "blue": "#9CCFD8",
+    "green": "#3E8FB0", "red": "#EB6F92", "purple": "#C4A7E7"
+  ]),
+  ThemePreset(id: "Night Owl", colors: [
+    "bg0": "#011627", "bg1": "#01111D", "bg2": "#0B2942", "bg3": "#1D3B53", "bg4": "#2C5180",
+    "fg0": "#D6DEEB", "fg1": "#C5CFD9", "fg2": "#7FDBCA", "muted": "#637777", "muted2": "#4B6479",
+    "border": "#82AAFF", "accent": "#7FDBCA", "accentSoft": "#A6F0E2", "blue": "#82AAFF",
+    "green": "#22DA6E", "red": "#EF5350", "purple": "#C792EA"
+  ]),
+  ThemePreset(id: "Palenight", colors: [
+    "bg0": "#292D3E", "bg1": "#222533", "bg2": "#34384B", "bg3": "#3F4458", "bg4": "#4F5374",
+    "fg0": "#EEFFFF", "fg1": "#BFC7D5", "fg2": "#A6ACCD", "muted": "#676E95", "muted2": "#4F5374",
+    "border": "#82AAFF", "accent": "#FFCB6B", "accentSoft": "#FFE2A8", "blue": "#82AAFF",
+    "green": "#C3E88D", "red": "#F07178", "purple": "#C792EA"
+  ]),
+  ThemePreset(id: "GitHub Dark", colors: [
+    "bg0": "#0D1117", "bg1": "#010409", "bg2": "#161B22", "bg3": "#21262D", "bg4": "#30363D",
+    "fg0": "#E6EDF3", "fg1": "#C9D1D9", "fg2": "#8B949E", "muted": "#6E7681", "muted2": "#484F58",
+    "border": "#58A6FF", "accent": "#58A6FF", "accentSoft": "#79C0FF", "blue": "#79C0FF",
+    "green": "#7EE787", "red": "#FF7B72", "purple": "#D2A8FF"
+  ]),
+  ThemePreset(id: "Synthwave 84", colors: [
+    "bg0": "#241B30", "bg1": "#1A1325", "bg2": "#2D2440", "bg3": "#3B2D55", "bg4": "#4F3A75",
+    "fg0": "#FFFFFF", "fg1": "#F4F4FE", "fg2": "#B893CE", "muted": "#7C5295", "muted2": "#5A3B73",
+    "border": "#F92AAD", "accent": "#FF7EDB", "accentSoft": "#FFB1ED", "blue": "#03EDF9",
+    "green": "#72F1B8", "red": "#FE4450", "purple": "#B893CE"
+  ]),
+  ThemePreset(id: "Cobalt 2", colors: [
+    "bg0": "#193549", "bg1": "#122738", "bg2": "#1F4662", "bg3": "#234E70", "bg4": "#0D3A58",
+    "fg0": "#FFFFFF", "fg1": "#E1EFFF", "fg2": "#B0C2D6", "muted": "#5C7E99", "muted2": "#3F5871",
+    "border": "#FFC600", "accent": "#FFC600", "accentSoft": "#FFE066", "blue": "#9EFFFF",
+    "green": "#A8FF60", "red": "#FF628C", "purple": "#FF9D00"
+  ]),
+  ThemePreset(id: "Material Ocean", colors: [
+    "bg0": "#0F111A", "bg1": "#090B10", "bg2": "#1A1C25", "bg3": "#252836", "bg4": "#3A3E4C",
+    "fg0": "#EEFFFF", "fg1": "#B4BAC7", "fg2": "#8F93A2", "muted": "#717CB4", "muted2": "#464B5D",
+    "border": "#82AAFF", "accent": "#80CBC4", "accentSoft": "#A7E0DA", "blue": "#82AAFF",
+    "green": "#C3E88D", "red": "#F07178", "purple": "#C792EA"
+  ]),
+  ThemePreset(id: "Ayu Dark", colors: [
+    "bg0": "#0F1419", "bg1": "#0B0E14", "bg2": "#191F26", "bg3": "#253340", "bg4": "#3E4B59",
+    "fg0": "#E6E1CF", "fg1": "#BFBDB6", "fg2": "#959BA4", "muted": "#5C6773", "muted2": "#3E4B59",
+    "border": "#FFB454", "accent": "#FFB454", "accentSoft": "#FFD08F", "blue": "#39BAE6",
+    "green": "#AAD94C", "red": "#F26D78", "purple": "#D2A6FF"
+  ]),
+  ThemePreset(id: "Ayu Mirage", colors: [
+    "bg0": "#1F2430", "bg1": "#171B24", "bg2": "#272D38", "bg3": "#34323E", "bg4": "#4F5663",
+    "fg0": "#CBCCC6", "fg1": "#B0B3BA", "fg2": "#8A9199", "muted": "#5C6773", "muted2": "#444B58",
+    "border": "#FFCC66", "accent": "#FFCC66", "accentSoft": "#FFDC92", "blue": "#5CCFE6",
+    "green": "#BAE67E", "red": "#F28779", "purple": "#D4BFFF"
+  ]),
+  ThemePreset(id: "Kanagawa", colors: [
+    "bg0": "#1F1F28", "bg1": "#16161D", "bg2": "#2A2A37", "bg3": "#363646", "bg4": "#54546D",
+    "fg0": "#DCD7BA", "fg1": "#C8C093", "fg2": "#9CABCA", "muted": "#727169", "muted2": "#54546D",
+    "border": "#7E9CD8", "accent": "#FFA066", "accentSoft": "#FFC59D", "blue": "#7E9CD8",
+    "green": "#98BB6C", "red": "#E46876", "purple": "#957FB8"
+  ]),
+  ThemePreset(id: "Everforest Dark", colors: [
+    "bg0": "#2D353B", "bg1": "#272E33", "bg2": "#374145", "bg3": "#414B50", "bg4": "#4F585E",
+    "fg0": "#D3C6AA", "fg1": "#BCAB94", "fg2": "#9DA9A0", "muted": "#7A8478", "muted2": "#5C6A72",
+    "border": "#A7C080", "accent": "#A7C080", "accentSoft": "#C7E0A0", "blue": "#7FBBB3",
+    "green": "#A7C080", "red": "#E67E80", "purple": "#D699B6"
+  ]),
+  ThemePreset(id: "Oxocarbon", colors: [
+    "bg0": "#161616", "bg1": "#0F0F0F", "bg2": "#262626", "bg3": "#393939", "bg4": "#525252",
+    "fg0": "#F2F4F8", "fg1": "#DDE1E6", "fg2": "#878D96", "muted": "#525252", "muted2": "#393939",
+    "border": "#BE95FF", "accent": "#BE95FF", "accentSoft": "#D4B6FF", "blue": "#33B1FF",
+    "green": "#42BE65", "red": "#EE5396", "purple": "#BE95FF"
+  ]),
+  ThemePreset(id: "High Contrast Dark", colors: [
+    "bg0": "#000000", "bg1": "#0A0A0A", "bg2": "#161616", "bg3": "#222222", "bg4": "#333333",
+    "fg0": "#FFFFFF", "fg1": "#E8E8E8", "fg2": "#B8B8B8", "muted": "#888888", "muted2": "#555555",
+    "border": "#FFFFFF", "accent": "#FFFF00", "accentSoft": "#FFFF66", "blue": "#00FFFF",
+    "green": "#00FF00", "red": "#FF0000", "purple": "#FF00FF"
+  ]),
+
+  // ── Cute / playful ──────────────────────────────────────────
+  ThemePreset(id: "Pastel Dream", colors: [
+    "bg0": "#1F1B2E", "bg1": "#251F3D", "bg2": "#2D2647", "bg3": "#3A3158", "bg4": "#4A4070",
+    "fg0": "#FFF1F8", "fg1": "#F8DCEE", "fg2": "#D4B5E8", "muted": "#9888B5", "muted2": "#6B5F8A",
+    "border": "#E4B7FF", "accent": "#FFB7E0", "accentSoft": "#FFD6EC", "blue": "#A4DAFF",
+    "green": "#B8FFD8", "red": "#FF9DB5", "purple": "#D6B4FF"
+  ]),
+  ThemePreset(id: "Sakura Night", colors: [
+    "bg0": "#1A1320", "bg1": "#231929", "bg2": "#2E1F38", "bg3": "#3D2A4B", "bg4": "#553B69",
+    "fg0": "#FFF0F4", "fg1": "#F0CADD", "fg2": "#D196B5", "muted": "#A06B8B", "muted2": "#704660",
+    "border": "#FFB3D1", "accent": "#FF8FB6", "accentSoft": "#FFB8D0", "blue": "#9EC7FF",
+    "green": "#B3F0C5", "red": "#FF7088", "purple": "#D49DFF"
+  ]),
+  ThemePreset(id: "Mint Dream", colors: [
+    "bg0": "#0E1A18", "bg1": "#0A1413", "bg2": "#152624", "bg3": "#1F3631", "bg4": "#2C4F47",
+    "fg0": "#E8FFF6", "fg1": "#C5F0E1", "fg2": "#8DCAB4", "muted": "#608A7C", "muted2": "#3F5E54",
+    "border": "#7FFFD4", "accent": "#3DDCAB", "accentSoft": "#7CECC8", "blue": "#5BC8FF",
+    "green": "#90F5A1", "red": "#FF8E80", "purple": "#B894FF"
+  ]),
+  ThemePreset(id: "Sunset Glow", colors: [
+    "bg0": "#1F1014", "bg1": "#180A0E", "bg2": "#2B161B", "bg3": "#3D1F26", "bg4": "#582935",
+    "fg0": "#FFE9D6", "fg1": "#FFCCAA", "fg2": "#E89A82", "muted": "#A06B5C", "muted2": "#6E483F",
+    "border": "#FFA585", "accent": "#FF7847", "accentSoft": "#FFA178", "blue": "#FFC36B",
+    "green": "#FFD56B", "red": "#FF5577", "purple": "#FF9DCC"
+  ]),
+  ThemePreset(id: "Ocean Breeze", colors: [
+    "bg0": "#0A1E2A", "bg1": "#06151F", "bg2": "#102A3A", "bg3": "#1A3A4D", "bg4": "#27516A",
+    "fg0": "#E8F8FF", "fg1": "#B7DDF0", "fg2": "#7EB6D1", "muted": "#5A8AA3", "muted2": "#3D6075",
+    "border": "#5AC8FA", "accent": "#26C5DC", "accentSoft": "#6FE0F0", "blue": "#5DAEFC",
+    "green": "#7FE0B6", "red": "#FF7080", "purple": "#B89FFF"
+  ]),
+  ThemePreset(id: "Forest Witch", colors: [
+    "bg0": "#0E1812", "bg1": "#08120D", "bg2": "#16241B", "bg3": "#1F3527", "bg4": "#2E4D38",
+    "fg0": "#E8F5E0", "fg1": "#C8DEB8", "fg2": "#8FAB7E", "muted": "#5E7A55", "muted2": "#3E5238",
+    "border": "#9CCB7E", "accent": "#88D86C", "accentSoft": "#B0E89A", "blue": "#86C5C5",
+    "green": "#A8E490", "red": "#E47E76", "purple": "#C49AD9"
+  ]),
+  ThemePreset(id: "Bubblegum", colors: [
+    "bg0": "#1E1521", "bg1": "#180F1B", "bg2": "#2A1E2E", "bg3": "#3A2A40", "bg4": "#5A4264",
+    "fg0": "#FFEDFA", "fg1": "#F8C7E8", "fg2": "#D69BC4", "muted": "#9D7398", "muted2": "#6E4F6B",
+    "border": "#FF80D5", "accent": "#FF5EC4", "accentSoft": "#FF95D8", "blue": "#7FD6FF",
+    "green": "#9CFFB5", "red": "#FF6B82", "purple": "#D87DFF"
+  ]),
+  ThemePreset(id: "Coffee Dark", colors: [
+    "bg0": "#1A1410", "bg1": "#140F0C", "bg2": "#241C16", "bg3": "#322620", "bg4": "#473530",
+    "fg0": "#F5E8D6", "fg1": "#D9C4A6", "fg2": "#A89274", "muted": "#7A6648", "muted2": "#564434",
+    "border": "#C8985C", "accent": "#D4A06A", "accentSoft": "#E5BD8A", "blue": "#9CC2D5",
+    "green": "#B8D08C", "red": "#D87870", "purple": "#C098D4"
+  ]),
+
+  // ── Light themes ────────────────────────────────────────────
+  ThemePreset(id: "Solarized Light", colors: [
+    "bg0": "#FDF6E3", "bg1": "#EEE8D5", "bg2": "#E4DDC9", "bg3": "#D6CFB7", "bg4": "#C3BC9F",
+    "fg0": "#002B36", "fg1": "#073642", "fg2": "#586E75", "muted": "#93A1A1", "muted2": "#B6B0A0",
+    "border": "#268BD2", "accent": "#268BD2", "accentSoft": "#5DAEEC", "blue": "#268BD2",
+    "green": "#859900", "red": "#DC322F", "purple": "#6C71C4"
+  ]),
+  ThemePreset(id: "GitHub Light", colors: [
+    "bg0": "#FFFFFF", "bg1": "#F6F8FA", "bg2": "#EAEEF2", "bg3": "#D0D7DE", "bg4": "#AFB8C1",
+    "fg0": "#1F2328", "fg1": "#424A53", "fg2": "#656D76", "muted": "#8C959F", "muted2": "#AFB8C1",
+    "border": "#0969DA", "accent": "#0969DA", "accentSoft": "#54AEFF", "blue": "#218BFF",
+    "green": "#1A7F37", "red": "#CF222E", "purple": "#8250DF"
+  ]),
+  ThemePreset(id: "Catppuccin Latte", colors: [
+    "bg0": "#EFF1F5", "bg1": "#E6E9EF", "bg2": "#DCE0E8", "bg3": "#CCD0DA", "bg4": "#BCC0CC",
+    "fg0": "#4C4F69", "fg1": "#5C5F77", "fg2": "#6C6F85", "muted": "#9CA0B0", "muted2": "#BCC0CC",
+    "border": "#8839EF", "accent": "#EA76CB", "accentSoft": "#E5A1D5", "blue": "#1E66F5",
+    "green": "#40A02B", "red": "#D20F39", "purple": "#8839EF"
+  ]),
+  ThemePreset(id: "Ayu Light", colors: [
+    "bg0": "#FAFAFA", "bg1": "#F0F0F0", "bg2": "#E8E8E8", "bg3": "#D9D7CE", "bg4": "#BFBDB6",
+    "fg0": "#5C6166", "fg1": "#787B80", "fg2": "#959DA6", "muted": "#ABB0B6", "muted2": "#C5C6C5",
+    "border": "#FA8D3E", "accent": "#FA8D3E", "accentSoft": "#FFB376", "blue": "#399EE6",
+    "green": "#86B300", "red": "#F07171", "purple": "#A37ACC"
+  ]),
+
+  // ── 🌀 Weird & wild ────────────────────────────────────────
+  ThemePreset(id: "Vaporwave", colors: [
+    "bg0": "#1B0B3A", "bg1": "#140628", "bg2": "#28104D", "bg3": "#3A1A6B", "bg4": "#552B95",
+    "fg0": "#FFE6F7", "fg1": "#FFB8E5", "fg2": "#C795D9", "muted": "#8166A8", "muted2": "#5A4878",
+    "border": "#FF71CE", "accent": "#FF71CE", "accentSoft": "#FFA8DD", "blue": "#01CDFE",
+    "green": "#05FFA1", "red": "#FF61C7", "purple": "#B967FF"
+  ]),
+  ThemePreset(id: "Hacker Matrix", colors: [
+    "bg0": "#000000", "bg1": "#020A02", "bg2": "#031603", "bg3": "#062306", "bg4": "#0A3A0A",
+    "fg0": "#00FF41", "fg1": "#00DD33", "fg2": "#00B82A", "muted": "#085C12", "muted2": "#063D0E",
+    "border": "#00FF41", "accent": "#00FF41", "accentSoft": "#74FF8E", "blue": "#00FFCC",
+    "green": "#00FF41", "red": "#FF1F1F", "purple": "#7CFFB4"
+  ]),
+  ThemePreset(id: "Cyberpunk 2077", colors: [
+    "bg0": "#0A0E14", "bg1": "#050811", "bg2": "#10161E", "bg3": "#1A2530", "bg4": "#293949",
+    "fg0": "#F2FF00", "fg1": "#E1ECC9", "fg2": "#8DB6BC", "muted": "#557A7E", "muted2": "#3D5557",
+    "border": "#00FFD1", "accent": "#FCEE0A", "accentSoft": "#FFF668", "blue": "#00F0FF",
+    "green": "#39FFAD", "red": "#FF003C", "purple": "#FF00A8"
+  ]),
+  ThemePreset(id: "Amber CRT", colors: [
+    "bg0": "#1A0E00", "bg1": "#120A00", "bg2": "#251600", "bg3": "#3D2300", "bg4": "#5A3500",
+    "fg0": "#FFB000", "fg1": "#E89800", "fg2": "#B57600", "muted": "#7E5300", "muted2": "#553700",
+    "border": "#FFB000", "accent": "#FFB000", "accentSoft": "#FFC94D", "blue": "#FF8000",
+    "green": "#FFD700", "red": "#FF4500", "purple": "#FF6B00"
+  ]),
+  ThemePreset(id: "MS-DOS", colors: [
+    "bg0": "#000080", "bg1": "#000060", "bg2": "#0000A0", "bg3": "#0000C0", "bg4": "#0000E0",
+    "fg0": "#FFFFFF", "fg1": "#E0E0FF", "fg2": "#B0B0FF", "muted": "#7070C0", "muted2": "#5050A0",
+    "border": "#FFFF00", "accent": "#FFFF00", "accentSoft": "#FFFF80", "blue": "#00FFFF",
+    "green": "#00FF00", "red": "#FF8080", "purple": "#FF80FF"
+  ]),
+  ThemePreset(id: "Galaxy Far Away", colors: [
+    "bg0": "#03030F", "bg1": "#02020A", "bg2": "#0A0A20", "bg3": "#161640", "bg4": "#272760",
+    "fg0": "#F0F8FF", "fg1": "#B8C8E8", "fg2": "#7B91C2", "muted": "#4A5680", "muted2": "#303A55",
+    "border": "#8AB4FF", "accent": "#A78BFA", "accentSoft": "#C3B0FB", "blue": "#5BBCFF",
+    "green": "#7DF8C2", "red": "#FF6B9F", "purple": "#C77DFF"
+  ]),
+  ThemePreset(id: "Aurora Borealis", colors: [
+    "bg0": "#001020", "bg1": "#000A18", "bg2": "#001A30", "bg3": "#002848", "bg4": "#013D6A",
+    "fg0": "#E8FFFB", "fg1": "#A8E8E0", "fg2": "#6EBFB6", "muted": "#3F8480", "muted2": "#28575C",
+    "border": "#00E8B8", "accent": "#7FFFD4", "accentSoft": "#A8FFE0", "blue": "#42E2F4",
+    "green": "#00FFAA", "red": "#FF6188", "purple": "#AA77FF"
+  ]),
+  ThemePreset(id: "Volcanic Lava", colors: [
+    "bg0": "#1A0000", "bg1": "#0E0000", "bg2": "#280505", "bg3": "#400808", "bg4": "#5C0F0F",
+    "fg0": "#FFE6CC", "fg1": "#FFB380", "fg2": "#E07A3D", "muted": "#A0451B", "muted2": "#6B2E13",
+    "border": "#FF4500", "accent": "#FF4500", "accentSoft": "#FF7037", "blue": "#FF8C00",
+    "green": "#FFD700", "red": "#DC143C", "purple": "#FF1493"
+  ]),
+  ThemePreset(id: "Arctic Glacier", colors: [
+    "bg0": "#0E1A22", "bg1": "#091218", "bg2": "#152631", "bg3": "#1F3645", "bg4": "#2D4A5C",
+    "fg0": "#E8F8FF", "fg1": "#B5DDF0", "fg2": "#7FB6CE", "muted": "#4F7E96", "muted2": "#345768",
+    "border": "#A6E3FF", "accent": "#7FDFFF", "accentSoft": "#A8EBFF", "blue": "#5DC4F2",
+    "green": "#88E5C0", "red": "#FF7E8A", "purple": "#A0B6FF"
+  ]),
+  ThemePreset(id: "Cotton Candy", colors: [
+    "bg0": "#2A1830", "bg1": "#1F1124", "bg2": "#3A2240", "bg3": "#4D2E55", "bg4": "#683E72",
+    "fg0": "#FFF5FB", "fg1": "#F0CCE6", "fg2": "#D599C7", "muted": "#9C6D92", "muted2": "#6E4D67",
+    "border": "#FFC0E8", "accent": "#FF85C8", "accentSoft": "#FFB1D7", "blue": "#85D0FF",
+    "green": "#A8FFCC", "red": "#FF7588", "purple": "#D085FF"
+  ]),
+  ThemePreset(id: "Watermelon", colors: [
+    "bg0": "#1A2818", "bg1": "#101D0F", "bg2": "#243A22", "bg3": "#345732", "bg4": "#4D7848",
+    "fg0": "#FFE6EE", "fg1": "#FFB8CC", "fg2": "#E68DA5", "muted": "#9C5E72", "muted2": "#6B4051",
+    "border": "#FF4F7B", "accent": "#FF4F7B", "accentSoft": "#FF85A6", "blue": "#7FE5C5",
+    "green": "#7FE57F", "red": "#FF3060", "purple": "#FF85A6"
+  ]),
+  ThemePreset(id: "Avocado Toast", colors: [
+    "bg0": "#1F2A14", "bg1": "#15200D", "bg2": "#2A3920", "bg3": "#3D5030", "bg4": "#566B45",
+    "fg0": "#F8F1D8", "fg1": "#DBC9A5", "fg2": "#A89E7A", "muted": "#7A724F", "muted2": "#544E37",
+    "border": "#A8D86C", "accent": "#A8D86C", "accentSoft": "#C5E89B", "blue": "#9CCFD8",
+    "green": "#88C040", "red": "#D87055", "purple": "#C89DC8"
+  ]),
+  ThemePreset(id: "Goth Bunny", colors: [
+    "bg0": "#000000", "bg1": "#080008", "bg2": "#150010", "bg3": "#22001A", "bg4": "#380028",
+    "fg0": "#FFEEFF", "fg1": "#E0B8D8", "fg2": "#9C7898", "muted": "#5C3D58", "muted2": "#3D2638",
+    "border": "#FF1493", "accent": "#FF1493", "accentSoft": "#FF66B5", "blue": "#9F00FF",
+    "green": "#5BFF8A", "red": "#FF1B5C", "purple": "#C800FF"
+  ]),
+  ThemePreset(id: "Y2K Chrome", colors: [
+    "bg0": "#0F1428", "bg1": "#0A0E1F", "bg2": "#1A2040", "bg3": "#252D55", "bg4": "#3A436F",
+    "fg0": "#E0EBFF", "fg1": "#A8B8E0", "fg2": "#7588B5", "muted": "#52638F", "muted2": "#384566",
+    "border": "#C0C0C0", "accent": "#FF00CC", "accentSoft": "#FF66DC", "blue": "#00CCFF",
+    "green": "#7FFF00", "red": "#FF3030", "purple": "#9966FF"
+  ]),
+  ThemePreset(id: "Halloween", colors: [
+    "bg0": "#0A0510", "bg1": "#05020A", "bg2": "#15091F", "bg3": "#22102E", "bg4": "#351947",
+    "fg0": "#FFE0B8", "fg1": "#E8B97D", "fg2": "#C49460", "muted": "#7E5E3D", "muted2": "#553F28",
+    "border": "#FF6B00", "accent": "#FF6B00", "accentSoft": "#FF9847", "blue": "#7CC4FF",
+    "green": "#5BC85B", "red": "#E62E2E", "purple": "#9B30FF"
+  ]),
+  ThemePreset(id: "Vampire", colors: [
+    "bg0": "#0F0608", "bg1": "#080304", "bg2": "#1C0810", "bg3": "#2D0E18", "bg4": "#451522",
+    "fg0": "#FFE8E8", "fg1": "#E0B8B8", "fg2": "#B08585", "muted": "#785757", "muted2": "#503838",
+    "border": "#8B0000", "accent": "#DC143C", "accentSoft": "#F04060", "blue": "#A06080",
+    "green": "#88B848", "red": "#DC143C", "purple": "#5D2B5D"
+  ]),
+  ThemePreset(id: "Witch's Brew", colors: [
+    "bg0": "#0A0F0A", "bg1": "#050805", "bg2": "#101810", "bg3": "#1C2818", "bg4": "#2D3F26",
+    "fg0": "#E8FFD8", "fg1": "#B8E095", "fg2": "#88B068", "muted": "#587838", "muted2": "#3A5024",
+    "border": "#7CFF50", "accent": "#7CFF50", "accentSoft": "#A8FF88", "blue": "#48A0E0",
+    "green": "#5BFF1F", "red": "#FF3030", "purple": "#9B30FF"
+  ]),
+  ThemePreset(id: "Mermaid Lagoon", colors: [
+    "bg0": "#001A24", "bg1": "#001218", "bg2": "#002A38", "bg3": "#0A3F50", "bg4": "#15596E",
+    "fg0": "#E8FFF8", "fg1": "#A8E8DC", "fg2": "#6FBFB0", "muted": "#3F8478", "muted2": "#28574F",
+    "border": "#FF7F88", "accent": "#FF7F88", "accentSoft": "#FFB0B6", "blue": "#48E0DC",
+    "green": "#5BFFD0", "red": "#FF5078", "purple": "#9B85FF"
+  ]),
+  ThemePreset(id: "Unicorn Rainbow", colors: [
+    "bg0": "#1F0F2E", "bg1": "#150822", "bg2": "#2C1745", "bg3": "#3F2363", "bg4": "#553387",
+    "fg0": "#FFF0FF", "fg1": "#F0C8FF", "fg2": "#C795E8", "muted": "#8E6BAB", "muted2": "#634B7E",
+    "border": "#FF80F0", "accent": "#FF80F0", "accentSoft": "#FFB0F8", "blue": "#80E0FF",
+    "green": "#80FFB0", "red": "#FF7090", "purple": "#C080FF"
+  ]),
+  ThemePreset(id: "Phoenix Fire", colors: [
+    "bg0": "#1A0900", "bg1": "#0E0500", "bg2": "#2D1100", "bg3": "#481B00", "bg4": "#702A00",
+    "fg0": "#FFE8C0", "fg1": "#FFC080", "fg2": "#E89045", "muted": "#A85F1F", "muted2": "#6E3D10",
+    "border": "#FF6600", "accent": "#FF8C00", "accentSoft": "#FFB050", "blue": "#FFD700",
+    "green": "#FFCC00", "red": "#FF3300", "purple": "#FF1493"
+  ]),
+  ThemePreset(id: "Dragon Scale", colors: [
+    "bg0": "#0A1A0E", "bg1": "#051208", "bg2": "#15281C", "bg3": "#203D2A", "bg4": "#2F583E",
+    "fg0": "#F5E8C8", "fg1": "#D4C088", "fg2": "#A89557", "muted": "#7A6A38", "muted2": "#544823",
+    "border": "#FFD700", "accent": "#FFD700", "accentSoft": "#FFE057", "blue": "#48C5C5",
+    "green": "#3FAA62", "red": "#D43838", "purple": "#A84FCD"
+  ]),
+  ThemePreset(id: "Boba Milk Tea", colors: [
+    "bg0": "#1F1611", "bg1": "#150F0B", "bg2": "#2A1E16", "bg3": "#3D2C20", "bg4": "#5A4030",
+    "fg0": "#FFF1E0", "fg1": "#E8C9A5", "fg2": "#B89A78", "muted": "#856E50", "muted2": "#5A4A35",
+    "border": "#D4A576", "accent": "#E8B888", "accentSoft": "#F5D2A8", "blue": "#9CC0D0",
+    "green": "#A8C088", "red": "#D87060", "purple": "#B898C8"
+  ]),
+  ThemePreset(id: "Matcha Latte", colors: [
+    "bg0": "#F5F0E0", "bg1": "#E8E0CC", "bg2": "#DDD2B5", "bg3": "#C9BC95", "bg4": "#A89E78",
+    "fg0": "#1F2A14", "fg1": "#3D5025", "fg2": "#5C7038", "muted": "#7E8C58", "muted2": "#9CA878",
+    "border": "#5A8838", "accent": "#5A8838", "accentSoft": "#8AB562", "blue": "#3D7099",
+    "green": "#5A8838", "red": "#B5414A", "purple": "#8C5BA0"
+  ]),
+  ThemePreset(id: "Sushi Bar", colors: [
+    "bg0": "#0F0F12", "bg1": "#080809", "bg2": "#1A1A1F", "bg3": "#28282F", "bg4": "#3D3D45",
+    "fg0": "#FFFCF5", "fg1": "#E8DFC8", "fg2": "#B5A988", "muted": "#7A7058", "muted2": "#544A35",
+    "border": "#FF6B70", "accent": "#FF6B70", "accentSoft": "#FF9398", "blue": "#5DAEAC",
+    "green": "#A8C870", "red": "#FF4858", "purple": "#A878B5"
+  ]),
+  ThemePreset(id: "Pad Thai", colors: [
+    "bg0": "#1A0F08", "bg1": "#100806", "bg2": "#2A1B0E", "bg3": "#402815", "bg4": "#5C3A1F",
+    "fg0": "#FFEED8", "fg1": "#F0CC95", "fg2": "#C49860", "muted": "#876738", "muted2": "#5A4521",
+    "border": "#E89035", "accent": "#FF9B3D", "accentSoft": "#FFC07A", "blue": "#88C9E5",
+    "green": "#A8E055", "red": "#E84F3A", "purple": "#D49A55"
+  ]),
+  ThemePreset(id: "Tropical Beach", colors: [
+    "bg0": "#003348", "bg1": "#002535", "bg2": "#004460", "bg3": "#005978", "bg4": "#007299",
+    "fg0": "#FFF8E0", "fg1": "#FFD9A0", "fg2": "#E89F5C", "muted": "#A87042", "muted2": "#6E4A2C",
+    "border": "#FFD700", "accent": "#FF8845", "accentSoft": "#FFAB78", "blue": "#5BC8E5",
+    "green": "#7FFFC0", "red": "#FF5566", "purple": "#FF8FB5"
+  ]),
+  ThemePreset(id: "Deep Sea", colors: [
+    "bg0": "#000814", "bg1": "#00050E", "bg2": "#001628", "bg3": "#002340", "bg4": "#01355B",
+    "fg0": "#E0F4FF", "fg1": "#90BFE0", "fg2": "#5589B5", "muted": "#2E5878", "muted2": "#1A3A52",
+    "border": "#48BFE3", "accent": "#48BFE3", "accentSoft": "#80D5EF", "blue": "#5390D9",
+    "green": "#56CFE1", "red": "#F72585", "purple": "#7400B8"
+  ]),
+  ThemePreset(id: "Coral Reef", colors: [
+    "bg0": "#001F2D", "bg1": "#001520", "bg2": "#003045", "bg3": "#004763", "bg4": "#006085",
+    "fg0": "#FFF0E8", "fg1": "#FFC9B0", "fg2": "#E89878", "muted": "#A86F50", "muted2": "#6E482F",
+    "border": "#FF7F50", "accent": "#FF6B6B", "accentSoft": "#FF9B9B", "blue": "#4ECDC4",
+    "green": "#95E1D3", "red": "#F38181", "purple": "#FCBAD3"
+  ]),
+  ThemePreset(id: "Honeycomb", colors: [
+    "bg0": "#1A1300", "bg1": "#100B00", "bg2": "#2A1F00", "bg3": "#403100", "bg4": "#5C4700",
+    "fg0": "#FFF5C8", "fg1": "#E8C966", "fg2": "#B59838", "muted": "#856B1A", "muted2": "#594810",
+    "border": "#FFB300", "accent": "#FFC107", "accentSoft": "#FFD352", "blue": "#FF9800",
+    "green": "#FFEB3B", "red": "#FF5722", "purple": "#FF6F00"
+  ]),
+  ThemePreset(id: "Blueprint", colors: [
+    "bg0": "#0A2F4A", "bg1": "#06223A", "bg2": "#103E5E", "bg3": "#1B5078", "bg4": "#286490",
+    "fg0": "#E0F0FF", "fg1": "#B8DCFF", "fg2": "#88B8E5", "muted": "#5588B5", "muted2": "#3A6080",
+    "border": "#FFFFFF", "accent": "#FFFFFF", "accentSoft": "#E0F0FF", "blue": "#7FCEFF",
+    "green": "#7FFFB0", "red": "#FF8A95", "purple": "#A0AFFF"
+  ]),
+  ThemePreset(id: "Outrun Sunset", colors: [
+    "bg0": "#1B0035", "bg1": "#100020", "bg2": "#28004D", "bg3": "#3D006B", "bg4": "#560096",
+    "fg0": "#FFF1FF", "fg1": "#FFC0F0", "fg2": "#E085C5", "muted": "#9555A8", "muted2": "#6B3A78",
+    "border": "#FF1F8A", "accent": "#FF6FFF", "accentSoft": "#FF9FFF", "blue": "#00F0FF",
+    "green": "#39FF14", "red": "#FF003C", "purple": "#FF1F8A"
+  ]),
+  ThemePreset(id: "Miami Vice", colors: [
+    "bg0": "#1B0E2E", "bg1": "#0F081E", "bg2": "#2A1745", "bg3": "#3D2363", "bg4": "#553387",
+    "fg0": "#FFE0F8", "fg1": "#F5A8DC", "fg2": "#C77FB5", "muted": "#8E5588", "muted2": "#633B5C",
+    "border": "#00E5E5", "accent": "#FF6EC7", "accentSoft": "#FFB0E0", "blue": "#00E5E5",
+    "green": "#7FFF8C", "red": "#FF4060", "purple": "#B967FF"
+  ]),
+  ThemePreset(id: "Pikachu Yellow", colors: [
+    "bg0": "#1F1700", "bg1": "#150F00", "bg2": "#2D2300", "bg3": "#453700", "bg4": "#634F00",
+    "fg0": "#FFEE00", "fg1": "#FFD700", "fg2": "#E5BE00", "muted": "#A88A00", "muted2": "#705C00",
+    "border": "#000000", "accent": "#FFCB05", "accentSoft": "#FFE057", "blue": "#3B4CCA",
+    "green": "#7FCC00", "red": "#FF1F1F", "purple": "#9B30FF"
+  ]),
+  ThemePreset(id: "Mario World", colors: [
+    "bg0": "#1A1F4D", "bg1": "#101535", "bg2": "#252D6B", "bg3": "#363F8C", "bg4": "#4D58B0",
+    "fg0": "#FFFFFF", "fg1": "#FFE0B0", "fg2": "#E89F5C", "muted": "#A87042", "muted2": "#6E4A2C",
+    "border": "#E52521", "accent": "#E52521", "accentSoft": "#FF5550", "blue": "#0099E5",
+    "green": "#43B047", "red": "#E52521", "purple": "#FFB341"
+  ]),
+  ThemePreset(id: "Pirate's Rum", colors: [
+    "bg0": "#1A0F08", "bg1": "#100806", "bg2": "#2A1B0E", "bg3": "#402815", "bg4": "#5C3A1F",
+    "fg0": "#FFE6BD", "fg1": "#E0B580", "fg2": "#B58A50", "muted": "#7A5E33", "muted2": "#523F1F",
+    "border": "#FFD700", "accent": "#FFD700", "accentSoft": "#FFE057", "blue": "#88C9E5",
+    "green": "#A8C078", "red": "#B81F1F", "purple": "#9B6B45"
+  ]),
+  ThemePreset(id: "Lavender Fields", colors: [
+    "bg0": "#1F1A2E", "bg1": "#15111F", "bg2": "#2C2542", "bg3": "#3F3358", "bg4": "#564878",
+    "fg0": "#F5F0FF", "fg1": "#D4C4F0", "fg2": "#A892D4", "muted": "#7868A8", "muted2": "#544978",
+    "border": "#B197FC", "accent": "#B197FC", "accentSoft": "#D0BFFF", "blue": "#7FAFE5",
+    "green": "#A0E5BF", "red": "#FF8FA3", "purple": "#C77DFF"
+  ]),
+  ThemePreset(id: "Bubble Pop", colors: [
+    "bg0": "#0E1428", "bg1": "#080B1B", "bg2": "#1A2240", "bg3": "#2A345A", "bg4": "#3F4A78",
+    "fg0": "#FFF8FB", "fg1": "#F5C9DD", "fg2": "#D195B0", "muted": "#8E6585", "muted2": "#634A5E",
+    "border": "#FF61A6", "accent": "#FF61A6", "accentSoft": "#FF95C5", "blue": "#61DAFB",
+    "green": "#7FFFB0", "red": "#FF6B6B", "purple": "#A78BFA"
+  ]),
+  ThemePreset(id: "Newspaper", colors: [
+    "bg0": "#FBF8F0", "bg1": "#F0EAD8", "bg2": "#E4DDC9", "bg3": "#D2CAB0", "bg4": "#B5AB8C",
+    "fg0": "#1A1715", "fg1": "#3D3835", "fg2": "#5C5651", "muted": "#7E7872", "muted2": "#A0998F",
+    "border": "#1A1715", "accent": "#3D3835", "accentSoft": "#5C5651", "blue": "#2D5078",
+    "green": "#5C7438", "red": "#9C2D2D", "purple": "#5C3870"
+  ]),
+  ThemePreset(id: "Edo Sumi", colors: [
+    "bg0": "#0F0E0C", "bg1": "#0A0908", "bg2": "#1C1A18", "bg3": "#2C2926", "bg4": "#3E3A36",
+    "fg0": "#F5F0E0", "fg1": "#D4CDB8", "fg2": "#A89E80", "muted": "#7A715A", "muted2": "#544D3D",
+    "border": "#A52A2A", "accent": "#C8474D", "accentSoft": "#E58085", "blue": "#588C8E",
+    "green": "#7C9E5F", "red": "#A52A2A", "purple": "#7E5680"
   ])
 ]
-
-func regexCapture(_ pattern: String, in text: String) throws -> String? {
-  let regex = try NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators])
-  let range = NSRange(text.startIndex..<text.endIndex, in: text)
-  guard let match = regex.firstMatch(in: text, range: range), match.numberOfRanges > 1,
-        let swiftRange = Range(match.range(at: 1), in: text) else { return nil }
-  return String(text[swiftRange])
-}
-
-func hexIsValid(_ value: String) -> Bool {
-  value.range(of: #"^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"#, options: .regularExpression) != nil
-}
 
 func nsColor(from hex: String) -> NSColor {
   var raw = hex.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
@@ -158,20 +724,6 @@ func alphaSuffix(_ hex: String) -> String {
   return raw.count == 9 ? String(raw.suffix(2)).uppercased() : ""
 }
 
-func parseStringColorPairs(from body: String) throws -> (values: [String: String], order: [String]) {
-  var values: [String: String] = [:]
-  var order: [String] = []
-  let regex = try NSRegularExpression(pattern: #""([^"]+)":\s*"(#[0-9A-Fa-f]{6,8})""#)
-  for match in regex.matches(in: body, range: NSRange(body.startIndex..<body.endIndex, in: body)) {
-    guard let keyRange = Range(match.range(at: 1), in: body),
-          let valueRange = Range(match.range(at: 2), in: body) else { continue }
-    let key = String(body[keyRange])
-    values[key] = String(body[valueRange]).uppercased()
-    if !order.contains(key) { order.append(key) }
-  }
-  return (values, order)
-}
-
 func uniqueBackupURL(for url: URL, stamp: String) -> URL {
   let directory = url.deletingLastPathComponent()
   let baseName = "\(url.lastPathComponent).backup-\(stamp)"
@@ -182,39 +734,6 @@ func uniqueBackupURL(for url: URL, stamp: String) -> URL {
     index += 1
   }
   return candidate
-}
-
-func nodeExecutableURL() -> URL {
-  let home = FileManager.default.homeDirectoryForCurrentUser
-  let directPaths = [
-    home.appendingPathComponent(".volta/bin/node").path,
-    "/opt/homebrew/bin/node",
-    "/usr/local/bin/node",
-    "/usr/bin/node"
-  ]
-  for path in directPaths {
-    if FileManager.default.isExecutableFile(atPath: path) {
-      return URL(fileURLWithPath: path)
-    }
-  }
-
-  let nvmDir = home.appendingPathComponent(".nvm/versions/node")
-  if let versions = try? FileManager.default.contentsOfDirectory(at: nvmDir, includingPropertiesForKeys: nil) {
-    let candidates = versions
-      .map { $0.appendingPathComponent("bin/node") }
-      .filter { FileManager.default.isExecutableFile(atPath: $0.path) }
-      .sorted { $0.path.localizedStandardCompare($1.path) == .orderedDescending }
-    if let node = candidates.first {
-      return node
-    }
-  }
-
-  return URL(fileURLWithPath: "/usr/bin/env")
-}
-
-func nodeArguments(generatorPath: String) -> [String] {
-  let executable = nodeExecutableURL().path
-  return executable == "/usr/bin/env" ? ["node", generatorPath] : [generatorPath]
 }
 
 func settingTitle(_ key: String) -> String {
@@ -300,12 +819,133 @@ final class ThemeModel: ObservableObject {
   @Published var selectedPreset = presets[0]
   @Published var selectedBaseCategory = baseCategories[0]
   @Published var selectedDetailCategoryID = "surfaces"
-  @Published var activeTargetID: String = editorTargets.first(where: { $0.id == "cursor" })?.id ?? editorTargets[0].id
-  @Published var targetApplyStates: [String: Bool] = Dictionary(uniqueKeysWithValues: editorTargets.map { ($0.id, $0.id == "cursor") })
+  @Published var activeTargetID: String = builtInTargets.first(where: { $0.id == "cursor" })?.id ?? builtInTargets[0].id
+  @Published var targetApplyStates: [String: Bool] = Dictionary(uniqueKeysWithValues: builtInTargets.map { ($0.id, $0.id == "cursor") })
+  @Published var customTargets: [EditorTarget] = []
+  @Published var pathOverrides: [String: String] = [:]
+
+  /// Built-in targets (with user path overrides applied) + user-added custom targets.
+  var allTargets: [EditorTarget] {
+    var result: [EditorTarget] = builtInTargets.map { base in
+      var t = base
+      if let override = pathOverrides[base.id] {
+        t.pathOverride = override
+      }
+      return t
+    }
+    result.append(contentsOf: customTargets)
+    return result
+  }
   @Published var status = "Ready"
+  @Published var filterText: String = ""
+  @Published var selectedKey: String? = nil
+  @Published var showPreferences: Bool = false
+  @Published var showInspector: Bool = true
+
+  @Published var document = ThemeDocument()
+  @Published var targetWorkbenchColors: [String: String] = [:]
+  @Published var userPresets: [UserPresetSpec] = []
+
+  // Apply flow state
+  @Published var pendingApplyConfirmation: Bool = false
+  @Published var isApplying: Bool = false
+  @Published var applyResult: ApplyOutcome? = nil
+
+  enum ApplyOutcome: Identifiable {
+    case success(targets: [String])
+    case failure(message: String, partial: [String])
+    var id: String {
+      switch self {
+      case .success(let t): return "ok-\(t.joined())"
+      case .failure(let m, _): return "fail-\(m)"
+      }
+    }
+  }
+
+  var filteredBaseKeys: [String] {
+    let all = selectedBaseCategory.keys.filter { colors[$0] != nil }
+    guard !filterText.isEmpty else { return all }
+    let q = filterText.lowercased()
+    return all.filter { key in
+      let title = colorMeta[key]?.title.lowercased() ?? ""
+      let sub = colorMeta[key]?.subtitle.lowercased() ?? ""
+      return key.lowercased().contains(q) || title.contains(q) || sub.contains(q)
+    }
+  }
+
+  var filteredDetailKeys: [String] {
+    let all = selectedDetailCategory.keys
+    guard !filterText.isEmpty else { return all }
+    let q = filterText.lowercased()
+    return all.filter { key in
+      let title = settingTitle(key).lowercased()
+      return key.lowercased().contains(q) || title.contains(q)
+    }
+  }
+
+  func resolvedHex(for key: String) -> String {
+    detailOverrides[key] ?? detailColors[key] ?? "#000000"
+  }
+
+  /// Returns the most "live" hex for a workbench key for preview purposes.
+  /// Priority:
+  ///   1. detailOverrides (in-memory edit not yet applied)
+  ///   2. theme.json's resolved ui value (detailColors)
+  ///   3. target settings.json on disk (targetWorkbenchColors)
+  ///   4. palette[paletteFallback]
+  ///   5. literalFallback
+  func previewHex(_ key: String, palette paletteFallback: String? = nil, literal: String = "#000000") -> String {
+    if let v = detailOverrides[key] { return v }
+    if let v = detailColors[key] { return v }
+    if let v = targetWorkbenchColors[key] { return v }
+    if let p = paletteFallback, let v = colors[p] { return v }
+    return literal
+  }
+
+  /// Read the target's actual settings.json and pull workbench.colorCustomizations.
+  func loadTargetWorkbenchColors() {
+    let url = activeTarget.settingsURL
+    guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+      targetWorkbenchColors = [:]
+      return
+    }
+    let blockPattern = #""workbench\.colorCustomizations"\s*:\s*\{([\s\S]*?)\n\s*\}"#
+    guard let blockRegex = try? NSRegularExpression(pattern: blockPattern) else {
+      targetWorkbenchColors = [:]
+      return
+    }
+    let range = NSRange(text.startIndex..<text.endIndex, in: text)
+    guard let match = blockRegex.firstMatch(in: text, range: range), match.numberOfRanges > 1,
+          let bodyRange = Range(match.range(at: 1), in: text) else {
+      targetWorkbenchColors = [:]
+      return
+    }
+    let body = String(text[bodyRange])
+    var result: [String: String] = [:]
+    let pairRegex = try! NSRegularExpression(pattern: #""([^"]+)":\s*"(#[0-9A-Fa-f]{6,8})""#)
+    let bodyRangeNS = NSRange(body.startIndex..<body.endIndex, in: body)
+    for match in pairRegex.matches(in: body, range: bodyRangeNS) {
+      if let kr = Range(match.range(at: 1), in: body),
+         let vr = Range(match.range(at: 2), in: body) {
+        result[String(body[kr])] = String(body[vr]).uppercased()
+      }
+    }
+    targetWorkbenchColors = result
+  }
 
   init() {
+    ensureThemeFile()
     reload()
+  }
+
+  private func ensureThemeFile() {
+    let fm = FileManager.default
+    if fm.fileExists(atPath: themeURL.path) { return }
+    try? fm.createDirectory(at: studioDir, withIntermediateDirectories: true)
+    if let bundleURL = Bundle.main.url(forResource: "theme", withExtension: "json"),
+       let data = try? Data(contentsOf: bundleURL) {
+      try? data.write(to: themeURL, options: .atomic)
+    }
   }
 
   var selectedDetailCategory: ColorCategory {
@@ -313,11 +953,11 @@ final class ThemeModel: ObservableObject {
   }
 
   var activeTarget: EditorTarget {
-    editorTargets.first { $0.id == activeTargetID } ?? editorTargets[0]
+    allTargets.first { $0.id == activeTargetID } ?? allTargets[0]
   }
 
   var applyTargets: [EditorTarget] {
-    let selected = editorTargets.filter { targetApplyStates[$0.id] == true }
+    let selected = allTargets.filter { targetApplyStates[$0.id] == true }
     return selected.isEmpty ? [activeTarget] : selected
   }
 
@@ -327,77 +967,305 @@ final class ThemeModel: ObservableObject {
     reload()
   }
 
+  // MARK: - Custom Target Management
+
+  /// Save current customization (overrides + custom targets) into theme.json on disk.
+  func persistTargetCustomization() {
+    var doc = document
+    doc.targetCustomization.pathOverrides = pathOverrides
+    doc.targetCustomization.custom = customTargets.map { t in
+      CustomTargetSpec(id: t.id, name: t.name, settingsPath: t.pathOverride ?? t.defaultSettingsPath)
+    }
+    do {
+      try ThemeDocumentIO.write(doc, to: themeURL)
+      document = doc
+    } catch {
+      status = "Failed to persist target customization: \(error.localizedDescription)"
+    }
+  }
+
+  func setOverride(targetID: String, path: String?) {
+    if let p = path, !p.isEmpty {
+      pathOverrides[targetID] = p
+    } else {
+      pathOverrides.removeValue(forKey: targetID)
+    }
+    persistTargetCustomization()
+    if targetID == activeTargetID { loadTargetWorkbenchColors() }
+  }
+
+  func addCustomTarget(name: String, path: String) -> EditorTarget {
+    let id = "custom-\(UUID().uuidString.prefix(8).lowercased())"
+    let target = EditorTarget(
+      id: id,
+      name: name,
+      appSupportName: "",
+      bundleID: nil,
+      supportLevel: "Custom",
+      pathOverride: path,
+      isCustom: true
+    )
+    customTargets.append(target)
+    targetApplyStates[id] = false
+    persistTargetCustomization()
+    return target
+  }
+
+  func updateCustomTarget(id: String, name: String, path: String) {
+    guard let idx = customTargets.firstIndex(where: { $0.id == id }) else { return }
+    customTargets[idx].name = name
+    customTargets[idx].pathOverride = path
+    persistTargetCustomization()
+    if id == activeTargetID { loadTargetWorkbenchColors() }
+  }
+
+  func removeCustomTarget(id: String) {
+    customTargets.removeAll { $0.id == id }
+    targetApplyStates.removeValue(forKey: id)
+    if activeTargetID == id {
+      activeTargetID = "cursor"
+    }
+    persistTargetCustomization()
+  }
+
+  // MARK: - User Presets (saved custom themes)
+
+  /// Persist current `userPresets` array to theme.json on disk.
+  func persistUserPresets() {
+    var doc = document
+    doc.userPresets = userPresets
+    do {
+      try ThemeDocumentIO.write(doc, to: themeURL)
+      document = doc
+    } catch {
+      status = "Failed to save user presets: \(error.localizedDescription)"
+    }
+  }
+
+  /// Save the current palette state as a new named user preset.
+  @discardableResult
+  func saveUserPreset(name: String) -> UserPresetSpec {
+    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    let id = "user-\(UUID().uuidString.prefix(8).lowercased())"
+    let stamp = ISO8601DateFormatter().string(from: Date())
+    var snapshot: [String: String] = [:]
+    for k in colors.keys { snapshot[k] = (colors[k] ?? "").uppercased() }
+    let spec = UserPresetSpec(id: id, name: trimmed, createdAt: stamp, colors: snapshot)
+    userPresets.append(spec)
+    persistUserPresets()
+    return spec
+  }
+
+  func updateUserPreset(id: String, name: String) {
+    guard let idx = userPresets.firstIndex(where: { $0.id == id }) else { return }
+    userPresets[idx].name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    persistUserPresets()
+  }
+
+  func removeUserPreset(id: String) {
+    userPresets.removeAll { $0.id == id }
+    persistUserPresets()
+  }
+
+  /// Apply a stored user preset's colors as if it were a built-in preset.
+  func applyUserPreset(_ spec: UserPresetSpec) {
+    for (key, value) in spec.colors {
+      colors[key] = value.uppercased()
+      document.colors[key] = value.uppercased()
+    }
+    let applier = ThemeApplier(document: document)
+    let pairs = applier.renderWorkbenchPairs()
+    var nextDetailColors: [String: String] = [:]
+    var nextDetailOrder: [String] = []
+    for (k, v) in pairs {
+      nextDetailColors[k] = v.uppercased()
+      nextDetailOrder.append(k)
+    }
+    detailColors = nextDetailColors
+    detailOrder = nextDetailOrder
+    detailCategories = buildDetailCategories(order: nextDetailOrder)
+    status = "Loaded user preset \"\(spec.name)\" · preview updated"
+  }
+
+  // MARK: - Backup Management
+
+  struct BackupFile: Identifiable, Hashable {
+    let id: String
+    let url: URL
+    let date: Date
+    let size: Int
+    let originalName: String
+    var displayDate: String {
+      let f = DateFormatter()
+      f.dateStyle = .medium
+      f.timeStyle = .short
+      return f.string(from: date)
+    }
+  }
+
+  func listBackups(forSettingsAt url: URL) -> [BackupFile] {
+    let dir = url.deletingLastPathComponent()
+    let baseName = url.lastPathComponent
+    let prefix = "\(baseName).backup-"
+    guard let entries = try? FileManager.default.contentsOfDirectory(
+      at: dir,
+      includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey]
+    ) else { return [] }
+    return entries
+      .filter { $0.lastPathComponent.hasPrefix(prefix) }
+      .compactMap { url -> BackupFile? in
+        let attrs = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+        let date = attrs?.contentModificationDate ?? Date(timeIntervalSince1970: 0)
+        let size = attrs?.fileSize ?? 0
+        return BackupFile(id: url.path, url: url, date: date, size: size, originalName: baseName)
+      }
+      .sorted { $0.date > $1.date }
+  }
+
+  /// Restore a backup by overwriting the target's settings.json.
+  func restoreBackup(_ backup: BackupFile, to settingsURL: URL) throws {
+    let data = try Data(contentsOf: backup.url)
+    try data.write(to: settingsURL, options: .atomic)
+    if settingsURL.path == activeTarget.settingsURL.path {
+      loadTargetWorkbenchColors()
+    }
+    status = "Restored \(backup.originalName) from \(backup.displayDate)"
+  }
+
+  func deleteBackup(_ backup: BackupFile) throws {
+    try FileManager.default.removeItem(at: backup.url)
+    status = "Deleted backup \(backup.url.lastPathComponent)"
+  }
+
   func reload() {
     do {
-      let text = try String(contentsOf: generatorURL, encoding: .utf8)
-      let colorBody = try regexCapture(#"const colors = \{([\s\S]*?)\n\};"#, in: text) ?? ""
-      let themeBody = try regexCapture(#"const themeSettings = \{([\s\S]*?)\n\};"#, in: text) ?? ""
-      let overrideBody = try regexCapture(#"const uiOverrides = \{([\s\S]*?)\n\};"#, in: text) ?? ""
+      let doc = try ThemeDocumentIO.read(from: themeURL)
+      document = doc
 
-      var nextColors: [String: String] = [:]
-      var nextOrder: [String] = []
-      let baseRegex = try NSRegularExpression(pattern: #"^\s*([A-Za-z0-9_]+):\s*"(#[0-9A-Fa-f]{6,8})",?\s*$"#)
-      for line in colorBody.components(separatedBy: .newlines) {
-        let range = NSRange(line.startIndex..<line.endIndex, in: line)
-        if let match = baseRegex.firstMatch(in: line, range: range),
-           let keyRange = Range(match.range(at: 1), in: line),
-           let valueRange = Range(match.range(at: 2), in: line) {
-          let key = String(line[keyRange])
-          nextColors[key] = String(line[valueRange]).uppercased()
-          nextOrder.append(key)
-        }
+      colors = doc.colors.values
+      order = doc.colors.keys
+
+      if let hue = doc.themeSettings["glass.theme.customTintHue"]?.asInt { tintHue = hue }
+      if let inten = doc.themeSettings["glass.theme.customTintIntensity"]?.asInt { tintIntensity = inten }
+
+      let applier = ThemeApplier(document: doc)
+      let pairs = applier.renderWorkbenchPairs()
+      var nextDetailColors: [String: String] = [:]
+      var nextDetailOrder: [String] = []
+      for (k, v) in pairs {
+        nextDetailColors[k] = v.uppercased()
+        nextDetailOrder.append(k)
       }
-
-      let themeRegex = try NSRegularExpression(pattern: #"^\s*"([^"]+)":\s*([^,]+),?\s*$"#)
-      for line in themeBody.components(separatedBy: .newlines) {
-        let range = NSRange(line.startIndex..<line.endIndex, in: line)
-        guard let match = themeRegex.firstMatch(in: line, range: range),
-              let keyRange = Range(match.range(at: 1), in: line),
-              let valueRange = Range(match.range(at: 2), in: line) else { continue }
-        let key = String(line[keyRange])
-        let value = String(line[valueRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-        if key == "glass.theme.customTintHue" { tintHue = Int(value) ?? tintHue }
-        if key == "glass.theme.customTintIntensity" { tintIntensity = Int(value) ?? tintIntensity }
-      }
-
-      let settings = (try? String(contentsOf: activeTarget.settingsURL, encoding: .utf8)) ?? "{\n}\n"
-      let workbenchBody = try regexCapture(#""workbench\.colorCustomizations":\s*\{([\s\S]*?)\n\s*\}"#, in: settings) ?? ""
-      let parsedDetail = try parseStringColorPairs(from: workbenchBody)
-      let parsedOverrides = try parseStringColorPairs(from: overrideBody)
-
-      colors = nextColors
-      order = nextOrder
-      detailColors = parsedDetail.values
-      detailOrder = parsedDetail.order
-      detailOverrides = parsedOverrides.values
-      detailCategories = buildDetailCategories(order: parsedDetail.order)
+      detailColors = nextDetailColors
+      detailOrder = nextDetailOrder
+      detailOverrides = doc.uiOverrides.values
+      detailCategories = buildDetailCategories(order: nextDetailOrder)
       if !detailCategories.contains(where: { $0.id == selectedDetailCategoryID }) {
         selectedDetailCategoryID = detailCategories.first?.id ?? "surfaces"
       }
-      status = "Loaded \(activeTarget.name): \(nextColors.count) base colors, \(parsedDetail.values.count) detailed colors"
+
+      // Load custom target configuration
+      pathOverrides = doc.targetCustomization.pathOverrides
+      customTargets = doc.targetCustomization.custom.map { spec in
+        EditorTarget(
+          id: spec.id,
+          name: spec.name,
+          appSupportName: "",
+          bundleID: nil,
+          supportLevel: "Custom",
+          pathOverride: spec.settingsPath,
+          isCustom: true
+        )
+      }
+      // Backfill applyStates for newly-loaded custom targets
+      for t in customTargets where targetApplyStates[t.id] == nil {
+        targetApplyStates[t.id] = false
+      }
+      userPresets = doc.userPresets
+
+      loadTargetWorkbenchColors()
+      let liveCount = targetWorkbenchColors.count
+      status = "Loaded theme.json (\(colors.count) palette · \(pairs.count) keys) · \(activeTarget.name) on disk: \(liveCount) live keys"
     } catch {
       status = "Reload failed: \(error.localizedDescription)"
     }
   }
 
   func loadPreset() {
+    // Update palette in both UI state and document
     for (key, value) in selectedPreset.colors {
-      colors[key] = value
+      colors[key] = value.uppercased()
+      document.colors[key] = value.uppercased()
     }
-    status = "Loaded \(selectedPreset.id)"
+
+    // Re-render workbench pairs so the live preview reflects the new palette immediately
+    let applier = ThemeApplier(document: document)
+    let pairs = applier.renderWorkbenchPairs()
+    var nextDetailColors: [String: String] = [:]
+    var nextDetailOrder: [String] = []
+    for (k, v) in pairs {
+      nextDetailColors[k] = v.uppercased()
+      nextDetailOrder.append(k)
+    }
+    detailColors = nextDetailColors
+    detailOrder = nextDetailOrder
+    detailCategories = buildDetailCategories(order: nextDetailOrder)
+    status = "Loaded \(selectedPreset.id) preset · preview updated"
   }
 
-  func backup() throws -> [URL] {
+  /// Maximum number of backup files retained per source file (per target).
+  /// When the count exceeds this number, the oldest backups are deleted automatically.
+  static let backupRetentionLimit = 15
+
+  /// Make a backup snapshot of a single file. Returns the backup URL,
+  /// or nil if the source file doesn't exist (nothing to back up).
+  /// Caller is responsible for keeping or discarding the backup based on whether
+  /// the subsequent write succeeded.
+  func makeBackup(of url: URL) throws -> URL? {
+    guard FileManager.default.fileExists(atPath: url.path) else { return nil }
     let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+    let backupURL = uniqueBackupURL(for: url, stamp: stamp)
+    try FileManager.default.copyItem(at: url, to: backupURL)
+    return backupURL
+  }
+
+  /// User-facing "Backup now" button. Snapshots theme.json + every selected target's
+  /// settings.json regardless of success (these are explicit user-requested snapshots,
+  /// not automatic pre-write safety nets).
+  func backup() throws -> [URL] {
     var results: [URL] = []
-    var urls = [generatorURL]
-    urls.append(contentsOf: applyTargets.map { $0.settingsURL })
-    for url in urls where FileManager.default.fileExists(atPath: url.path) {
-      let backup = uniqueBackupURL(for: url, stamp: stamp)
-      try FileManager.default.copyItem(at: url, to: backup)
-      results.append(backup)
+    if let b = try makeBackup(of: themeURL) {
+      results.append(b)
+      pruneBackups(forSettingsAt: themeURL, keep: ThemeModel.backupRetentionLimit)
+    }
+    for target in applyTargets {
+      if let b = try makeBackup(of: target.settingsURL) {
+        results.append(b)
+        pruneBackups(forSettingsAt: target.settingsURL, keep: ThemeModel.backupRetentionLimit)
+      }
     }
     return results
+  }
+
+  /// Delete oldest backups for a given source file beyond `keep` retention.
+  /// Failures are logged into status but never thrown (best-effort cleanup).
+  func pruneBackups(forSettingsAt url: URL, keep: Int) {
+    let backups = listBackups(forSettingsAt: url)
+    guard backups.count > keep else { return }
+    let toDelete = Array(backups.dropFirst(keep))   // listBackups sorts newest-first
+    var deletedCount = 0
+    for b in toDelete {
+      do {
+        try FileManager.default.removeItem(at: b.url)
+        deletedCount += 1
+      } catch {
+        // best-effort; ignore
+      }
+    }
+    if deletedCount > 0 {
+      let prevStatus = status
+      status = "\(prevStatus) · pruned \(deletedCount) old backup\(deletedCount == 1 ? "" : "s")"
+    }
   }
 
   func clearOverridesInSelectedGroup() {
@@ -412,551 +1280,111 @@ final class ThemeModel: ObservableObject {
     status = "Cleared all detailed overrides"
   }
 
+  /// Triggered by Apply button. Opens confirmation sheet (does not run yet).
+  func requestApply() {
+    pendingApplyConfirmation = true
+  }
+
+  /// Run after user confirms in the modal.
+  func confirmAndApply() {
+    pendingApplyConfirmation = false
+    isApplying = true
+    Task { @MainActor in
+      await self.runApplyTask()
+      self.isApplying = false
+    }
+  }
+
+  private func runApplyTask() async {
+    apply()
+  }
+
   func apply() {
     do {
-      for key in order {
-        let value = colors[key] ?? ""
-        guard hexIsValid(value) else { throw NSError(domain: "Theme", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(key) is invalid: \(value)"]) }
+      var doc = document
+
+      for key in doc.colors.keys {
+        if let v = colors[key] { doc.colors[key] = v.uppercased() }
       }
-      for (key, value) in detailOverrides {
-        guard hexIsValid(value) else { throw NSError(domain: "Theme", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(key) is invalid: \(value)"]) }
-      }
-
-      _ = try backup()
-      var text = try String(contentsOf: generatorURL, encoding: .utf8)
-      let colorLines = order.map { key in
-        "  \(key): \"\((colors[key] ?? "#000000").uppercased())\","
-      }.joined(separator: "\n")
-      let themeLines = [
-        #"  "workbench.colorTheme": "Default Dark Modern","#,
-        #"  "glass.theme.detectColorScheme": false,"#,
-        #"  "glass.theme.settingsId": "Default Dark Modern","#,
-        #"  "glass.theme.darkSettingsId": "Default Dark Modern","#,
-        #"  "glass.theme.customTintHue": \#(tintHue),"#,
-        #"  "glass.theme.customTintIntensity": \#(tintIntensity),"#
-      ].joined(separator: "\n")
-      let overrideLines = detailOverrides.keys.sorted().map { key in
-        "  \(String(reflecting: key)): \(String(reflecting: (detailOverrides[key] ?? "#000000").uppercased())),"
-      }.joined(separator: "\n")
-
-      text = try NSRegularExpression(pattern: #"const colors = \{[\s\S]*?\n\};"#)
-        .stringByReplacingMatches(in: text, range: NSRange(text.startIndex..<text.endIndex, in: text), withTemplate: "const colors = {\n\(colorLines)\n};")
-      text = try NSRegularExpression(pattern: #"const themeSettings = \{[\s\S]*?\n\};"#)
-        .stringByReplacingMatches(in: text, range: NSRange(text.startIndex..<text.endIndex, in: text), withTemplate: "const themeSettings = {\n\(themeLines)\n};")
-
-      if text.range(of: #"const uiOverrides = \{[\s\S]*?\n\};"#, options: .regularExpression) != nil {
-        text = try NSRegularExpression(pattern: #"const uiOverrides = \{[\s\S]*?\n\};"#)
-          .stringByReplacingMatches(in: text, range: NSRange(text.startIndex..<text.endIndex, in: text), withTemplate: "const uiOverrides = {\n\(overrideLines)\n};")
-      } else {
-        text = try NSRegularExpression(pattern: #"(const ui = \{[\s\S]*?\n\};)"#)
-          .stringByReplacingMatches(in: text, range: NSRange(text.startIndex..<text.endIndex, in: text), withTemplate: "$1\n\n// Direct per-setting overrides written by Workbench Theme Studio.\n// Keep this object small: base palette colors still drive everything else.\nconst uiOverrides = {\n\(overrideLines)\n};")
+      for (key, v) in colors where doc.colors[key] == nil {
+        doc.colors[key] = v.uppercased()
       }
 
-      text = text.replacingOccurrences(of: "${Object.entries(ui)\n  .map", with: "${Object.entries({ ...ui, ...uiOverrides })\n  .map")
-      try text.write(to: generatorURL, atomically: true, encoding: .utf8)
+      doc.uiOverrides.removeAll()
+      for key in detailOverrides.keys.sorted() {
+        guard let v = detailOverrides[key] else { continue }
+        doc.uiOverrides[key] = v.uppercased()
+      }
+
+      doc.themeSettings["glass.theme.customTintHue"] = .int(tintHue)
+      doc.themeSettings["glass.theme.customTintIntensity"] = .int(tintIntensity)
+
+      doc.targetCustomization.pathOverrides = pathOverrides
+      doc.targetCustomization.custom = customTargets.map { t in
+        CustomTargetSpec(id: t.id, name: t.name, settingsPath: t.pathOverride ?? t.defaultSettingsPath)
+      }
+
+      let applier = ThemeApplier(document: doc)
+      try applier.validate()
+
+      // Snapshot theme.json (we always need it)
+      let themeBackup = try? makeBackup(of: themeURL)
+      try ThemeDocumentIO.write(doc, to: themeURL)
+      // theme.json write succeeded → keep its backup (or remove if it was empty)
+      if let b = themeBackup {
+        pruneBackups(forSettingsAt: themeURL, keep: ThemeModel.backupRetentionLimit)
+        _ = b
+      }
+      document = doc
 
       var appliedNames: [String] = []
+      var failedDetails: [String] = []
       for target in applyTargets {
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = nodeExecutableURL()
-        process.arguments = nodeArguments(generatorPath: generatorURL.path)
-        process.environment = (ProcessInfo.processInfo.environment).merging([
-          "WORKBENCH_SETTINGS_PATH": target.settingsURL.path
-        ]) { _, new in new }
-        process.standardError = pipe
-        process.standardOutput = pipe
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-          let data = pipe.fileHandleForReading.readDataToEndOfFile()
-          let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-          throw NSError(domain: "Theme", code: 2, userInfo: [NSLocalizedDescriptionKey: output.isEmpty ? "node generator failed for \(target.name)" : output])
+        let options: ThemeApplier.ApplyOptions = (target.id == "cursor") ? .cursor : .standard
+        // 1. Snapshot current settings.json (no-op if file doesn't exist).
+        let preBackup = try? makeBackup(of: target.settingsURL)
+        do {
+          try applier.apply(toSettingsAt: target.settingsURL, options: options)
+          appliedNames.append(target.name)
+          // 2. Write succeeded → keep the backup, then prune old ones.
+          if preBackup != nil {
+            pruneBackups(forSettingsAt: target.settingsURL, keep: ThemeModel.backupRetentionLimit)
+          }
+        } catch {
+          // 3. Write failed → discard the just-created backup so the user's backup list
+          //    only contains snapshots of successful applies.
+          if let b = preBackup {
+            try? FileManager.default.removeItem(at: b)
+          }
+          failedDetails.append("\(target.name): \(error.localizedDescription)")
         }
-        appliedNames.append(target.name)
       }
 
       reload()
-      status = "Applied to \(appliedNames.joined(separator: ", ")). Reload editor windows if colors are cached."
+
+      if failedDetails.isEmpty {
+        status = "Applied to \(appliedNames.joined(separator: ", "))"
+        applyResult = .success(targets: appliedNames)
+      } else {
+        let summary = failedDetails.joined(separator: "\n")
+        status = "Apply finished with errors"
+        applyResult = .failure(message: summary, partial: appliedNames)
+      }
     } catch {
       status = "Apply failed: \(error.localizedDescription)"
+      applyResult = .failure(message: error.localizedDescription, partial: [])
     }
   }
 }
 
-struct BaseColorRow: View {
-  @ObservedObject var model: ThemeModel
-  let keyName: String
-
-  var body: some View {
-    let meta = colorMeta[keyName] ?? ColorMeta(title: keyName, subtitle: "")
-    let value = Binding<String>(
-      get: { model.colors[keyName] ?? "#000000" },
-      set: { model.colors[keyName] = $0.uppercased() }
-    )
-    let picker = Binding<Color>(
-      get: { Color(nsColor: nsColor(from: value.wrappedValue)) },
-      set: { newColor in
-        model.colors[keyName] = hex(from: NSColor(newColor), alphaSuffix: alphaSuffix(value.wrappedValue))
-      }
-    )
-
-    ColorEditorShell(color: value.wrappedValue) {
-      VStack(alignment: .leading, spacing: 5) {
-        HStack(spacing: 8) {
-          Text(meta.title).font(.headline)
-          Text(keyName)
-            .font(.system(.caption, design: .monospaced).weight(.semibold))
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(.white.opacity(0.08), in: Capsule())
-            .foregroundStyle(.secondary)
-        }
-        Text(meta.subtitle).font(.callout).foregroundStyle(.secondary)
-      }
-    } controls: {
-      TextField("#RRGGBB", text: value)
-        .font(.system(.body, design: .monospaced))
-        .textFieldStyle(.roundedBorder)
-        .frame(width: 130)
-      ColorPicker("", selection: picker, supportsOpacity: false)
-        .labelsHidden()
-        .frame(width: 34)
-    }
-  }
-}
-
-struct DetailColorRow: View {
-  @ObservedObject var model: ThemeModel
-  let keyName: String
-
-  var body: some View {
-    let value = Binding<String>(
-      get: { model.detailOverrides[keyName] ?? model.detailColors[keyName] ?? "#000000" },
-      set: { newValue in
-        let clean = newValue.uppercased()
-        model.detailColors[keyName] = clean
-        model.detailOverrides[keyName] = clean
-      }
-    )
-    let picker = Binding<Color>(
-      get: { Color(nsColor: nsColor(from: value.wrappedValue)) },
-      set: { newColor in
-        let next = hex(from: NSColor(newColor), alphaSuffix: alphaSuffix(value.wrappedValue))
-        model.detailColors[keyName] = next
-        model.detailOverrides[keyName] = next
-      }
-    )
-    let isOverride = model.detailOverrides[keyName] != nil
-
-    ColorEditorShell(color: value.wrappedValue) {
-      VStack(alignment: .leading, spacing: 6) {
-        HStack(spacing: 8) {
-          Text(settingTitle(keyName)).font(.headline)
-          if isOverride {
-            Text("custom")
-              .font(.system(.caption, design: .rounded).weight(.bold))
-              .padding(.horizontal, 7)
-              .padding(.vertical, 3)
-              .background(.green.opacity(0.2), in: Capsule())
-              .foregroundStyle(.green)
-          }
-        }
-        Text(settingSubtitle(keyName))
-          .font(.callout)
-          .foregroundStyle(.secondary)
-        Text(keyName)
-          .font(.system(.caption, design: .monospaced))
-          .foregroundStyle(.secondary)
-          .lineLimit(1)
-      }
-    } controls: {
-      TextField("#RRGGBB", text: value)
-        .font(.system(.body, design: .monospaced))
-        .textFieldStyle(.roundedBorder)
-        .frame(width: 130)
-      ColorPicker("", selection: picker, supportsOpacity: false)
-        .labelsHidden()
-        .frame(width: 34)
-      Button {
-        model.detailOverrides.removeValue(forKey: keyName)
-        model.status = "Reset \(keyName) to palette-generated value"
-      } label: {
-        Image(systemName: "arrow.counterclockwise")
-      }
-      .disabled(!isOverride)
-      .help("Reset this setting to base palette")
-    }
-  }
-}
-
-struct ColorEditorShell<LabelContent: View, ControlsContent: View>: View {
-  let color: String
-  @ViewBuilder var label: LabelContent
-  @ViewBuilder var controls: ControlsContent
-
-  var body: some View {
-    HStack(spacing: 14) {
-      RoundedRectangle(cornerRadius: 8)
-        .fill(Color(nsColor: nsColor(from: color)))
-        .frame(width: 64, height: 54)
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.2)))
-        .shadow(color: Color(nsColor: nsColor(from: color)).opacity(0.24), radius: 10, y: 4)
-
-      label
-      Spacer(minLength: 12)
-      HStack(spacing: 8) { controls }
-    }
-    .padding(14)
-    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
-    .overlay(RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.12)))
-  }
-}
-
-struct ContentView: View {
-  @StateObject private var model = ThemeModel()
-  private let previewKeys = ["bg0", "bg1", "bg2", "bg3", "bg4", "accent", "accentSoft", "blue", "green", "red", "purple"]
-
-  var body: some View {
-    ZStack {
-      LinearGradient(
-        colors: [
-          Color(nsColor: nsColor(from: model.colors["bg0"] ?? "#0B0D0E")),
-          Color(nsColor: nsColor(from: model.colors["bg1"] ?? "#101218")).opacity(0.96)
-        ],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-      )
-      .ignoresSafeArea()
-
-      NavigationSplitView {
-        sidebar
-          .navigationSplitViewColumnWidth(min: 300, ideal: 330)
-      } detail: {
-        detail
-          .frame(minWidth: 720, minHeight: 680)
-      }
-      .scrollContentBackground(.hidden)
-    }
-  }
-
-  private var sidebar: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 16) {
-        HStack(spacing: 12) {
-          AppMark(colors: model.colors)
-            .frame(width: 44, height: 44)
-          VStack(alignment: .leading, spacing: 2) {
-            Text("Workbench Theme").font(.title2.bold())
-            Text("VS Code-family Studio").foregroundStyle(.secondary)
-          }
-        }
-
-        Picker("Editor Mode", selection: $model.mode) {
-          ForEach(EditorMode.allCases) { mode in
-            Text(mode.rawValue).tag(mode)
-          }
-        }
-        .pickerStyle(.segmented)
-        .frame(maxWidth: .infinity)
-
-        targetCard
-        presetCard
-        groupsCard
-        tintCard
-        actionsCard
-      }
-      .padding(18)
-      .frame(maxWidth: .infinity, alignment: .topLeading)
-    }
-    .background(.ultraThinMaterial)
-  }
-
-  private var targetCard: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Label("Target Apps", systemImage: "macwindow.on.rectangle")
-        .font(.headline)
-
-      Picker("Edit From", selection: Binding(
-        get: { model.activeTargetID },
-        set: { id in
-          if let target = editorTargets.first(where: { $0.id == id }) {
-            model.setActiveTarget(target)
-          }
-        }
-      )) {
-        ForEach(editorTargets) { target in
-          Text(target.name).tag(target.id)
-        }
-      }
-      .pickerStyle(.menu)
-      .frame(maxWidth: .infinity, alignment: .leading)
-
-      VStack(spacing: 8) {
-        ForEach(editorTargets) { target in
-          Toggle(isOn: Binding(
-            get: { model.targetApplyStates[target.id] ?? false },
-            set: { model.targetApplyStates[target.id] = $0 }
-          )) {
-            HStack(spacing: 8) {
-              Circle()
-                .fill(target.isDetected ? Color.green : Color.secondary.opacity(0.35))
-                .frame(width: 8, height: 8)
-              VStack(alignment: .leading, spacing: 1) {
-                Text(target.name).font(.callout.weight(.semibold))
-                Text(target.appSupportName + " / " + target.supportLevel)
-                  .font(.caption)
-                  .foregroundStyle(.secondary)
-                  .lineLimit(1)
-              }
-            }
-          }
-          .toggleStyle(.checkbox)
-        }
-      }
-    }
-    .glassCard()
-  }
-
-  private var presetCard: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      Label("Presets", systemImage: "sparkles")
-        .font(.headline)
-      Picker("Preset", selection: $model.selectedPreset) {
-        ForEach(presets) { preset in
-          Text(preset.id).tag(preset)
-        }
-      }
-      .pickerStyle(.menu)
-      .frame(maxWidth: .infinity, alignment: .leading)
-
-      Button("Load Preset") { model.loadPreset() }
-        .frame(maxWidth: .infinity)
-    }
-    .glassCard()
-  }
-
-  private var groupsCard: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      Label(model.mode == .base ? "Base Groups" : "Detailed Groups", systemImage: "square.grid.2x2")
-        .font(.headline)
-      if model.mode == .base {
-        ForEach(baseCategories) { category in
-          categoryButton(category, selected: model.selectedBaseCategory == category) {
-            model.selectedBaseCategory = category
-          }
-        }
-      } else {
-        ForEach(model.detailCategories) { category in
-          categoryButton(category, selected: model.selectedDetailCategoryID == category.id) {
-            model.selectedDetailCategoryID = category.id
-          }
-        }
-      }
-    }
-    .glassCard()
-  }
-
-  private func categoryButton(_ category: ColorCategory, selected: Bool, action: @escaping () -> Void) -> some View {
-    Button(action: action) {
-      HStack(spacing: 10) {
-        Image(systemName: category.symbol)
-          .frame(width: 24)
-        VStack(alignment: .leading, spacing: 1) {
-          Text(category.title).font(.callout.weight(.semibold))
-          Text(category.subtitle).font(.caption).foregroundStyle(.secondary)
-            .lineLimit(1)
-        }
-        Spacer(minLength: 0)
-        Text("\(category.keys.count)")
-          .font(.caption.weight(.semibold))
-          .foregroundStyle(.secondary)
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .padding(10)
-    .background(selected ? .white.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 12))
-  }
-
-  private var tintCard: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      Label("Glass Tint", systemImage: "circle.lefthalf.filled")
-        .font(.headline)
-      Stepper("Hue \(model.tintHue)", value: $model.tintHue, in: 0...360)
-        .frame(maxWidth: .infinity, alignment: .leading)
-      Stepper("Intensity \(model.tintIntensity)", value: $model.tintIntensity, in: 0...100)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-    .glassCard()
-  }
-
-  private var actionsCard: some View {
-    VStack(spacing: 10) {
-      Button("Apply to Selected Apps") { model.apply() }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-        .frame(maxWidth: .infinity)
-
-      HStack {
-        Button("Backup") {
-          do {
-            let files = try model.backup()
-            model.status = "Backup created: \(files.count) files"
-          } catch {
-            model.status = "Backup failed: \(error.localizedDescription)"
-          }
-        }
-        .frame(maxWidth: .infinity)
-        Button("Reload") { model.reload() }
-          .frame(maxWidth: .infinity)
-        Button {
-          NSWorkspace.shared.open(model.activeTarget.userDir)
-        } label: {
-          Image(systemName: "folder")
-            .frame(maxWidth: .infinity)
-        }
-        .frame(maxWidth: .infinity)
-      }
-      .buttonStyle(.bordered)
-
-      Text(model.status)
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .lineLimit(6)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-    .glassCard()
-  }
-
-  private var detail: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      detailHeader
-
-      if model.mode == .base {
-        palettePreview
-        ScrollView {
-          LazyVStack(spacing: 12) {
-            ForEach(model.selectedBaseCategory.keys.filter { model.colors[$0] != nil }, id: \.self) { key in
-              BaseColorRow(model: model, keyName: key)
-            }
-          }
-          .padding(.vertical, 2)
-        }
-      } else {
-        detailedToolbar
-        ScrollView {
-          LazyVStack(spacing: 12) {
-            ForEach(model.selectedDetailCategory.keys, id: \.self) { key in
-              DetailColorRow(model: model, keyName: key)
-            }
-          }
-          .padding(.vertical, 2)
-        }
-      }
-    }
-    .padding(22)
-  }
-
-  private var detailHeader: some View {
-    let category = model.mode == .base ? model.selectedBaseCategory : model.selectedDetailCategory
-    return HStack(alignment: .top) {
-      VStack(alignment: .leading, spacing: 6) {
-        Label(category.title, systemImage: category.symbol)
-          .font(.largeTitle.bold())
-        Text(category.subtitle)
-          .font(.title3)
-          .foregroundStyle(.secondary)
-      }
-      Spacer()
-      if model.mode == .detailed {
-        VStack(alignment: .trailing, spacing: 4) {
-          Text("\(model.detailOverrides.count) custom overrides")
-            .font(.callout.weight(.semibold))
-          Text("แก้สีราย key โดยไม่ทำลาย base palette")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-      }
-    }
-  }
-
-  private var palettePreview: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      Text("Live Palette").font(.headline)
-      HStack(spacing: 8) {
-        ForEach(previewKeys, id: \.self) { key in
-          RoundedRectangle(cornerRadius: 10)
-            .fill(Color(nsColor: nsColor(from: model.colors[key] ?? "#000000")))
-            .frame(height: 42)
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.16)))
-            .help("\(colorMeta[key]?.title ?? key): \(model.colors[key] ?? "")")
-        }
-      }
-    }
-    .glassCard()
-  }
-
-  private var detailedToolbar: some View {
-    HStack(spacing: 10) {
-      Label("Direct workbench.colorCustomizations", systemImage: "slider.horizontal.3")
-        .font(.headline)
-      Spacer()
-      Button("Reset This Group") { model.clearOverridesInSelectedGroup() }
-      Button("Reset All Custom") { model.clearAllOverrides() }
-    }
-    .buttonStyle(.bordered)
-    .glassCard()
-  }
-}
-
-struct AppMark: View {
-  let colors: [String: String]
-
-  var body: some View {
-    ZStack {
-      RoundedRectangle(cornerRadius: 12, style: .continuous)
-        .fill(.ultraThinMaterial)
-        .overlay(
-          LinearGradient(
-            colors: [
-              Color(nsColor: nsColor(from: colors["accent"] ?? "#00E5FF")).opacity(0.9),
-              Color(nsColor: nsColor(from: colors["purple"] ?? "#D946EF")).opacity(0.86),
-              Color(nsColor: nsColor(from: colors["blue"] ?? "#4D7CFF")).opacity(0.86)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-          )
-          .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-          .blendMode(.plusLighter)
-        )
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.22)))
-
-      Image(systemName: "paintpalette.fill")
-        .font(.system(size: 21, weight: .semibold))
-        .foregroundStyle(.white)
-        .shadow(radius: 8)
-    }
-  }
-}
-
-extension View {
-  func glassCard() -> some View {
-    self
-      .padding(12)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-      .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(.white.opacity(0.12)))
-  }
-}
 
 @main
 struct CursorThemeCustomizerApp: App {
   var body: some Scene {
     WindowGroup {
       ContentView()
+        .navigationTitle("")
     }
-    .windowStyle(.titleBar)
+    .windowStyle(.hiddenTitleBar)
   }
 }

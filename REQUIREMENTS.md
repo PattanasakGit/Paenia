@@ -4,23 +4,15 @@
 
 - macOS 13 or newer.
 - Xcode Command Line Tools or Xcode with `swiftc`.
-- Node.js for running the theme generator.
+- No Node.js dependency. No npm packages.
 
-Node may be installed through:
+## Files
 
-- `nvm`: `~/.nvm/versions/node/*/bin/node`
-- Volta: `~/.volta/bin/node`
-- Homebrew Apple Silicon: `/opt/homebrew/bin/node`
-- Homebrew Intel: `/usr/local/bin/node`
-- System/env fallback: `/usr/bin/env node`
-
-## Cursor Files
-
-The app expects these paths:
+The app expects:
 
 ```text
-~/Library/Application Support/Cursor/User/settings.json
-~/Library/Application Support/Workbench Theme Studio/workbench-theme-generator.mjs
+~/Library/Application Support/<target>/User/settings.json
+~/Library/Application Support/Workbench Theme Studio/theme.json
 ```
 
 The app installs to:
@@ -31,21 +23,27 @@ The app installs to:
 
 ## Functional Requirements
 
-- Backup `settings.json` and generator before applying changes.
-- Backup names must not collide when apply is clicked multiple times quickly.
-- Edit base palette colors.
-- Edit detailed workbench color keys.
-- Persist direct color edits in `uiOverrides`.
-- Generate `workbench.colorCustomizations`.
-- Generate `editor.tokenColorCustomizations`.
-- Show useful error messages if generator execution fails.
-- Detect Node from GUI app context where shell PATH may be missing.
+- Edit base palette colors and per-key overrides through native UI.
+- Render `workbench.colorCustomizations` and `editor.tokenColorCustomizations` from `ui` + `uiOverrides`.
+- Resolve `$varName` and `$varNameAA` references against the palette.
+- Filter writes per target — only Cursor receives `glass.theme.*` and `workbench.colorTheme`.
+- Brace-balance check before any settings.json write — refuse to write structurally broken files.
+- Snapshot settings.json before each successful write; discard the snapshot if the write fails.
+- Cap retained backups at 15 per source file (auto-prune oldest).
+- Validate user-provided custom paths in 3 tiers (block / warn / ok).
+- Save current palette as a named user preset; restore at any time.
+- Confirm before Apply (modal) and show success / partial / failure result modal.
+- Restore from any backup with confirmation modal.
+- Preserve existing user state across reinstalls.
 
 ## Non-Functional Requirements
 
-- Native macOS app.
-- Minimal Glass visual style.
+- Native macOS app, SwiftUI, no external runtime.
+- App chrome adopts the loaded preset colors but flips light/dark color scheme automatically so contrast stays correct.
 - Sidebar must scroll when the window is small.
 - Sidebar menu widths must be consistent.
+- Every interactive control has a Thai `.help(...)` tooltip.
+- Toolbar buttons must show icon + short Thai label.
 - App icon must be included in bundle resources.
-- No dependency on npm packages.
+- Atomic writes for `theme.json` and target `settings.json`.
+- `theme.json` key order must be preserved on read and re-write.
