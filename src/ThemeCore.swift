@@ -520,18 +520,22 @@ struct ThemeApplier {
 
   // MARK: - Settings.json mutation
 
-  /// Per-target capabilities controlling what gets written.
+  /// Universal apply behavior. Theme + workbench colors are written to every
+  /// supported editor identically. Legacy Cursor-only `glass.theme.*` keys
+  /// (written by older versions) are stripped so files stay clean across all
+  /// editors regardless of their original origin.
   struct ApplyOptions {
-    /// Write `workbench.colorTheme` (the active theme name).
-    var writeColorTheme: Bool = false
-    /// Write Cursor-only `glass.theme.*` settings.
-    var writeGlassSettings: Bool = false
+    /// Write `workbench.colorTheme` (active theme name) — applies universally
+    /// to all VS Code-family editors that understand the standard key.
+    var writeColorTheme: Bool = true
 
-    static let cursor = ApplyOptions(writeColorTheme: true, writeGlassSettings: true)
-    static let standard = ApplyOptions(writeColorTheme: false, writeGlassSettings: false)
+    static let universal = ApplyOptions(writeColorTheme: true)
+    // Back-compat aliases — both targets now use the same path.
+    static let cursor = ApplyOptions(writeColorTheme: true)
+    static let standard = ApplyOptions(writeColorTheme: true)
   }
 
-  func apply(toSettingsAt url: URL, options: ApplyOptions = .standard) throws {
+  func apply(toSettingsAt url: URL, options: ApplyOptions = .universal) throws {
     try validate()
     let dir = url.deletingLastPathComponent()
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -541,20 +545,32 @@ struct ThemeApplier {
       text = "{\n}\n"
     }
 
-    for (key, value) in document.themeSettings {
-      let isGlassKey = key.hasPrefix("glass.")
-      let isColorTheme = key == "workbench.colorTheme"
+    // Pre-flight: refuse to patch a settings.json that is already structurally broken.
+    // Patching corrupt JSON would only compound the corruption. The user must restore
+    // from a valid backup first (or fix it by hand) before we touch it.
+    if !SettingsPatcher.hasBalancedBrackets(text) {
+      throw NSError(
+        domain: "Theme",
+        code: 98,
+        userInfo: [NSLocalizedDescriptionKey:
+          "settings.json ของ target นี้เสียอยู่แล้วก่อน apply (braces/brackets ไม่สมดุล) — " +
+          "หยุดเพื่อป้องกันความเสียหายเพิ่ม\n" +
+          "Path: \(url.path)\n" +
+          "ใน Apply Result นี้จะมีปุ่มกู้คืนจาก backup ล่าสุดที่ valid ให้ ถ้ามี"
+        ]
+      )
+    }
 
-      // Filter keys based on target capabilities
-      if isGlassKey && !options.writeGlassSettings {
-        // Strip orphaned glass.* keys that may have been written by older versions
+    for (key, value) in document.themeSettings {
+      // Always strip Cursor-only glass.* keys from any editor — they're not
+      // understood by VS Code-family apps and shouldn't pollute settings.json.
+      if key.hasPrefix("glass.") {
         text = SettingsPatcher.removeScalar(from: text, key: key)
         continue
       }
-      if isColorTheme && !options.writeColorTheme {
+      if key == "workbench.colorTheme" && !options.writeColorTheme {
         continue
       }
-
       text = SettingsPatcher.upsertScalar(in: text, key: key, valueLiteral: value.jsonLiteral)
     }
 
@@ -570,15 +586,16 @@ struct ThemeApplier {
     )
 
     // Sanity gate: refuse to write a structurally broken file.
-    // This catches regressions and protects users from any future bugs in the patcher.
+    // Pre-flight rejects already-corrupt sources, so reaching this branch means our
+    // own patcher introduced an imbalance — refuse to write and report as internal error.
     guard SettingsPatcher.hasBalancedBrackets(text) else {
       throw NSError(
         domain: "Theme",
         code: 99,
         userInfo: [NSLocalizedDescriptionKey:
-          "settings.json ที่กำลังจะเขียนมี braces/brackets ไม่สมดุล — ปฏิเสธเพื่อป้องกันไฟล์เสีย\n" +
+          "Internal error: ผลลัพธ์หลัง patch มี braces/brackets ไม่สมดุล — ไม่เขียนไฟล์\n" +
           "Path: \(url.path)\n" +
-          "ถ้าไฟล์เดิมเสียอยู่แล้ว: ใช้ backup ในโฟลเดอร์เดียวกัน (settings.json.backup-...)"
+          "กรุณารายงานข้อผิดพลาดนี้พร้อม settings.json (โดยตัดข้อมูลส่วนตัวออก)"
         ]
       )
     }

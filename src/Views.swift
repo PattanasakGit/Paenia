@@ -23,8 +23,20 @@ struct ContentView: View {
     .sheet(isPresented: $model.pendingApplyConfirmation) {
       ConfirmApplySheet(model: model)
     }
+    .sheet(isPresented: $model.pendingBackupConfirmation) {
+      ConfirmBackupSheet(model: model)
+    }
+    .sheet(isPresented: $model.pendingReloadConfirmation) {
+      ConfirmReloadSheet(model: model)
+    }
     .sheet(item: $model.applyResult) { outcome in
       ApplyResultSheet(model: model, outcome: outcome)
+    }
+    .sheet(item: $model.backupResult) { outcome in
+      BackupResultSheet(model: model, outcome: outcome)
+    }
+    .sheet(item: $model.reloadResult) { outcome in
+      ReloadResultSheet(model: model, outcome: outcome)
     }
     .preferredColorScheme(model.appColorScheme)
     .tint(model.appAccent)
@@ -32,72 +44,74 @@ struct ContentView: View {
     .animation(.easeInOut(duration: 0.25), value: model.appColorScheme)
   }
 
-  /// Compact icon + Thai label used in the toolbar so every button shows what it does
-  /// at a glance — even before tooltips fire.
-  private func toolbarLabel(_ icon: String, _ text: String) -> some View {
-    HStack(spacing: 5) {
-      Image(systemName: icon)
-        .font(.system(size: 13, weight: .medium))
-      Text(text)
-        .font(.system(.caption, design: .rounded).weight(.semibold))
-    }
-    .padding(.horizontal, 4)
+  /// Icon-only toolbar button. Description shows on hover via `.help(...)` on the caller.
+  private func toolbarIcon(_ icon: String) -> some View {
+    Image(systemName: icon)
+      .font(.system(size: 12, weight: .medium))
+      .frame(width: 30, height: 26)
+      .padding(.horizontal, 2)
+      .contentShape(Rectangle())
   }
 
   @ToolbarContentBuilder
   private var mainToolbar: some ToolbarContent {
-    ToolbarItem(placement: .principal) {
+    // IDE selector — leftmost slot.
+    ToolbarItem(placement: .navigation) {
       TargetMenu(model: model)
     }
+
+    // Flexible spacer in the principal (center) slot — expands to fill all
+    // available width, pushing the primaryAction cluster flush against the
+    // window's right edge. Renders as nothing (no slot styling) because Spacer
+    // has zero intrinsic content.
+    ToolbarItem(placement: .principal) {
+      Spacer()
+    }
+
+    // Action cluster + Apply — rightmost slot.
     ToolbarItemGroup(placement: .primaryAction) {
       Button {
-        do {
-          let files = try model.backup()
-          model.status = "Backup created: \(files.count) files"
-        } catch {
-          model.status = "Backup failed: \(error.localizedDescription)"
-        }
+        model.pendingBackupConfirmation = true
       } label: {
-        toolbarLabel("tray.and.arrow.down", "สำรอง")
+        toolbarIcon("tray.and.arrow.down")
       }
+      .buttonStyle(.bordered)
+      .controlSize(.large)
       .keyboardShortcut("b", modifiers: .command)
-      .help("สำรองไฟล์ settings.json ของทุก target ที่เลือกอยู่ในตอนนี้ทันที (⌘B)")
-
-      Button(action: model.reload) {
-        toolbarLabel("arrow.clockwise", "รีโหลด")
-      }
-      .keyboardShortcut("r", modifiers: .command)
-      .help("โหลด theme.json และอ่าน settings.json ของ editor ใหม่จากดิสก์ (⌘R)")
+      .help("สำรอง — backup settings.json ของทุก target ที่เลือกอยู่ (⌘B)")
 
       Button {
-        NSWorkspace.shared.open(model.activeTarget.userDir)
+        model.pendingReloadConfirmation = true
       } label: {
-        toolbarLabel("folder", "เปิดโฟลเดอร์")
+        toolbarIcon("arrow.clockwise")
       }
-      .help("เปิดโฟลเดอร์ที่เก็บ settings.json ของ editor ปัจจุบันใน Finder")
+      .buttonStyle(.bordered)
+      .controlSize(.large)
+      .keyboardShortcut("r", modifiers: .command)
+      .help("รีโหลด — โหลดทุกอย่างใหม่จากดิสก์ (⌘R)")
 
       Button {
         model.showInspector.toggle()
       } label: {
-        toolbarLabel(
-          model.showInspector ? "sidebar.right" : "rectangle.righthalf.inset.filled",
-          "พรีวิว"
-        )
+        toolbarIcon(model.showInspector ? "sidebar.right" : "rectangle.righthalf.inset.filled")
       }
+      .buttonStyle(.bordered)
+      .controlSize(.large)
       .keyboardShortcut("i", modifiers: [.command, .option])
-      .help("ซ่อน/แสดงแถบ Inspector ด้านขวา (preview + รายละเอียดสีที่เลือก) (⌥⌘I)")
+      .help("พรีวิว — ซ่อน/แสดงแถบ Inspector ด้านขวา (preview + รายละเอียดสีที่เลือก) (⌥⌘I)")
 
       Button {
         model.showPreferences = true
       } label: {
-        toolbarLabel("gearshape", "ตั้งค่า")
+        toolbarIcon("gearshape")
       }
+      .buttonStyle(.bordered)
+      .controlSize(.large)
       .keyboardShortcut(",", modifiers: .command)
-      .help("เปิดหน้าตั้งค่า — Glass Tint, Apply Targets, จัดการ Backup, custom paths (⌘,)")
+      .help("ตั้งค่า — Glass Tint, Apply Targets, จัดการ Backup, custom paths (⌘,)")
 
-      // Apply — prominent labeled button (opens confirmation sheet)
       Button(action: model.requestApply) {
-        HStack(spacing: 5) {
+        HStack(spacing: 6) {
           if model.isApplying {
             ProgressView().controlSize(.small)
           } else {
@@ -106,10 +120,10 @@ struct ContentView: View {
           Text(model.isApplying ? "Applying…" : "Apply")
             .font(.system(.body, design: .rounded).weight(.semibold))
         }
-        .padding(.horizontal, 4)
+        .padding(.horizontal, 6)
       }
       .buttonStyle(.borderedProminent)
-      .controlSize(.regular)
+      .controlSize(.large)
       .disabled(model.isApplying)
       .keyboardShortcut("s", modifiers: .command)
       .help("Apply — เขียนสีที่ตั้งไว้ลง settings.json ของ editor ที่เลือก (จะมี modal ยืนยันก่อนเขียน) (⌘S)")
@@ -603,16 +617,52 @@ struct PresetSwatchRow: View {
   }
 }
 
+// Lightweight filter chip — extracted as its own equatable view so SwiftUI can
+// skip rerendering chips whose state hasn't changed when search/filter updates.
+struct FilterPill: View, Equatable {
+  let filter: PresetFilter
+  let isActive: Bool
+  let count: Int
+  let accent: Color
+  let surface04: Color
+  let surface06: Color
+  let surface10: Color
+  var action: () -> Void = {}
+
+  static func == (lhs: FilterPill, rhs: FilterPill) -> Bool {
+    lhs.filter == rhs.filter && lhs.isActive == rhs.isActive && lhs.count == rhs.count
+  }
+
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: 5) {
+        Image(systemName: filter.icon).font(.system(size: 9, weight: .semibold))
+        Text(filter.rawValue).font(.system(.caption, design: .rounded).weight(.semibold))
+        Text("\(count)")
+          .font(.system(size: 9, weight: .bold))
+          .padding(.horizontal, 4).padding(.vertical, 1)
+          .background(surface10, in: Capsule())
+      }
+      .padding(.horizontal, 9).padding(.vertical, 5)
+      .background(Capsule().fill(isActive ? accent.opacity(0.22) : surface04))
+      .overlay(Capsule().stroke(isActive ? accent.opacity(0.5) : surface06))
+      .foregroundStyle(isActive ? accent : .secondary)
+      .contentShape(Capsule())
+    }
+    .buttonStyle(.plain)
+  }
+}
+
 enum PresetFilter: String, CaseIterable, Identifiable {
-  case all = "All"
   case dark = "Dark"
   case light = "Light"
+  case myPresets = "My Presets"
   var id: String { rawValue }
   var icon: String {
     switch self {
-    case .all: return "square.grid.2x2"
     case .dark: return "moon.fill"
     case .light: return "sun.max.fill"
+    case .myPresets: return "heart.fill"
     }
   }
 }
@@ -622,166 +672,135 @@ struct PresetPickerPopover: View {
   @ObservedObject var model: ThemeModel
   @Binding var search: String
   @Binding var isOpen: Bool
-  @State private var filter: PresetFilter = .all
+  @State private var filter: PresetFilter = .dark
   @Environment(\.themeChrome) private var theme
 
-  private var filtered: [ThemePreset] {
-    var result = presets
-    if !search.isEmpty {
-      let q = search.lowercased()
-      result = result.filter { $0.id.lowercased().contains(q) }
-    }
+  /// Active preset list for the current filter, with search applied.
+  /// Computed once per body pass — downstream views don't re-filter.
+  private var visiblePresets: [ThemePreset] {
+    let base: [ThemePreset]
     switch filter {
-    case .all: break
-    case .dark: result = result.filter { !$0.isLight }
-    case .light: result = result.filter { $0.isLight }
+    case .dark: base = darkPresetsList
+    case .light: base = lightPresetsList
+    case .myPresets: return [] // user presets handled separately
     }
-    return result
+    if search.isEmpty { return base }
+    let q = search.lowercased()
+    return base.filter { $0.id.lowercased().contains(q) }
   }
 
-  private var darkPresets: [ThemePreset] { filtered.filter { !$0.isLight } }
-  private var lightPresets: [ThemePreset] { filtered.filter { $0.isLight } }
+  private var visibleUserPresets: [UserPresetSpec] {
+    guard filter == .myPresets else { return [] }
+    if search.isEmpty { return model.userPresets }
+    let q = search.lowercased()
+    return model.userPresets.filter { $0.name.lowercased().contains(q) }
+  }
+
+  private func count(for f: PresetFilter) -> Int {
+    switch f {
+    case .dark: return darkPresetsList.count
+    case .light: return lightPresetsList.count
+    case .myPresets: return model.userPresets.count
+    }
+  }
 
   var body: some View {
     VStack(spacing: 0) {
-      // Search bar
-      HStack(spacing: 6) {
-        Image(systemName: "magnifyingglass")
-          .font(.system(size: 11))
-          .foregroundStyle(.secondary)
-        TextField("Search presets…", text: $search)
-          .textFieldStyle(.plain)
-          .font(.callout)
-        if !search.isEmpty {
-          Button { search = "" } label: {
-            Image(systemName: "xmark.circle.fill")
-              .foregroundStyle(.secondary)
-          }
-          .buttonStyle(.plain)
-        }
-      }
-      .padding(.horizontal, 10).padding(.vertical, 8)
-      .background(theme.surface(0.04))
-
-      // Filter pills
-      HStack(spacing: 6) {
-        ForEach(PresetFilter.allCases) { f in
-          let count = countFor(f)
-          Button {
-            filter = f
-          } label: {
-            HStack(spacing: 5) {
-              Image(systemName: f.icon).font(.system(size: 9, weight: .semibold))
-              Text(f.rawValue).font(.system(.caption, design: .rounded).weight(.semibold))
-              Text("\(count)")
-                .font(.system(size: 9, weight: .bold))
-                .padding(.horizontal, 4).padding(.vertical, 1)
-                .background(theme.surface(0.1), in: Capsule())
-            }
-            .padding(.horizontal, 9).padding(.vertical, 5)
-            .background(
-              Capsule().fill(filter == f ? theme.accent.opacity(0.22) : theme.surface(0.04))
-            )
-            .overlay(
-              Capsule().stroke(filter == f ? theme.accent.opacity(0.5) : theme.surface(0.06))
-            )
-            .foregroundStyle(filter == f ? theme.accent : .secondary)
-            .contentShape(Capsule())
-          }
-          .buttonStyle(.plain)
-        }
-        Spacer(minLength: 0)
-      }
-      .padding(.horizontal, 10).padding(.vertical, 7)
+      searchBar
+      filterPills
       Divider().opacity(0.4)
+      list
+      footer
+    }
+  }
 
-      // Preset list (grouped)
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: 8) {
-          if filtered.isEmpty {
-            VStack(spacing: 6) {
-              Image(systemName: "paintpalette")
-                .font(.system(size: 22, weight: .light))
-                .foregroundStyle(.secondary)
-              Text("No matching presets")
-                .font(.callout).foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 30)
-          } else {
-            if !model.userPresets.isEmpty && search.isEmpty {
-              groupHeader("MY PRESETS", icon: "heart.fill", count: model.userPresets.count)
-              VStack(spacing: 4) {
-                ForEach(model.userPresets, id: \.id) { spec in
-                  userPresetRow(spec)
-                }
-              }
-            }
-            if !darkPresets.isEmpty {
-              groupHeader("DARK", icon: "moon.fill", count: darkPresets.count)
-                .padding(.top, !model.userPresets.isEmpty && search.isEmpty ? 4 : 0)
-              VStack(spacing: 4) {
-                ForEach(darkPresets) { preset in
-                  presetRow(preset)
-                }
-              }
-            }
-            if !lightPresets.isEmpty {
-              groupHeader("LIGHT", icon: "sun.max.fill", count: lightPresets.count)
-                .padding(.top, !darkPresets.isEmpty ? 4 : 0)
-              VStack(spacing: 4) {
-                ForEach(lightPresets) { preset in
-                  presetRow(preset)
-                }
-              }
-            }
+  private var searchBar: some View {
+    HStack(spacing: 6) {
+      Image(systemName: "magnifyingglass")
+        .font(.system(size: 11))
+        .foregroundStyle(.secondary)
+      TextField("Search presets…", text: $search)
+        .textFieldStyle(.plain)
+        .font(.callout)
+      if !search.isEmpty {
+        Button { search = "" } label: {
+          Image(systemName: "xmark.circle.fill")
+            .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+      }
+    }
+    .padding(.horizontal, 10).padding(.vertical, 8)
+    .background(theme.surface(0.04))
+  }
+
+  private var filterPills: some View {
+    HStack(spacing: 6) {
+      ForEach(PresetFilter.allCases) { f in
+        FilterPill(
+          filter: f,
+          isActive: filter == f,
+          count: count(for: f),
+          accent: theme.accent,
+          surface04: theme.surface(0.04),
+          surface06: theme.surface(0.06),
+          surface10: theme.surface(0.1)
+        ) {
+          filter = f
+        }
+      }
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, 10).padding(.vertical, 7)
+  }
+
+  @ViewBuilder
+  private var list: some View {
+    ScrollView {
+      LazyVStack(alignment: .leading, spacing: 4) {
+        switch filter {
+        case .myPresets:
+          if visibleUserPresets.isEmpty { emptyState } else {
+            ForEach(visibleUserPresets, id: \.id) { spec in userPresetRow(spec) }
+          }
+        case .dark, .light:
+          if visiblePresets.isEmpty { emptyState } else {
+            ForEach(visiblePresets) { preset in presetRow(preset) }
           }
         }
-        .padding(8)
       }
-      .frame(width: 320, height: 400)
-
-      // Footer count
-      HStack {
-        Text("\(filtered.count) of \(presets.count)")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-        Spacer()
-        Button("Close") { isOpen = false }
-          .controlSize(.small)
-          .keyboardShortcut(.cancelAction)
-      }
-      .padding(.horizontal, 12).padding(.vertical, 8)
-      .background(theme.surface(0.04))
+      .padding(8)
     }
+    .frame(width: 320, height: 400)
   }
 
-  private func countFor(_ f: PresetFilter) -> Int {
-    let base: [ThemePreset]
-    if !search.isEmpty {
-      let q = search.lowercased()
-      base = presets.filter { $0.id.lowercased().contains(q) }
-    } else {
-      base = presets
+  private var emptyState: some View {
+    VStack(spacing: 6) {
+      Image(systemName: filter == .myPresets ? "heart" : "paintpalette")
+        .font(.system(size: 22, weight: .light))
+        .foregroundStyle(.secondary)
+      Text(filter == .myPresets
+           ? (search.isEmpty ? "ยังไม่มี preset ที่บันทึกไว้" : "No matching presets")
+           : "No matching presets")
+        .font(.callout).foregroundStyle(.secondary)
     }
-    switch f {
-    case .all: return base.count
-    case .dark: return base.filter { !$0.isLight }.count
-    case .light: return base.filter { $0.isLight }.count
-    }
+    .frame(maxWidth: .infinity)
+    .padding(.vertical, 30)
   }
 
-  private func groupHeader(_ title: String, icon: String, count: Int) -> some View {
-    HStack(spacing: 6) {
-      Image(systemName: icon).font(.system(size: 9, weight: .semibold))
-      Text(title)
-        .font(.system(size: 10, weight: .bold, design: .rounded))
-        .tracking(0.6)
-      Text("· \(count)")
-        .font(.system(size: 10, weight: .medium))
+  private var footer: some View {
+    HStack {
+      let visibleCount = filter == .myPresets ? visibleUserPresets.count : visiblePresets.count
+      Text("\(visibleCount) of \(count(for: filter))")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      Spacer()
+      Button("Close") { isOpen = false }
+        .controlSize(.small)
+        .keyboardShortcut(.cancelAction)
     }
-    .foregroundStyle(.secondary)
-    .padding(.horizontal, 6).padding(.top, 4).padding(.bottom, 2)
+    .padding(.horizontal, 12).padding(.vertical, 8)
+    .background(theme.surface(0.04))
   }
 
   private func presetRow(_ preset: ThemePreset) -> some View {
@@ -794,6 +813,7 @@ struct PresetPickerPopover: View {
         isOpen = false
       }
     )
+    .equatable()
   }
 
   private func userPresetRow(_ spec: UserPresetSpec) -> some View {
@@ -858,7 +878,7 @@ struct UserPresetCardRow: View {
   }
 }
 
-struct PresetCardRow: View {
+struct PresetCardRow: View, Equatable {
   let preset: ThemePreset
   let isSelected: Bool
   let action: () -> Void
@@ -866,6 +886,13 @@ struct PresetCardRow: View {
 
   // Slightly wider preview using extra palette keys
   private let keys = ["bg0", "bg1", "fg0", "accent", "accentSoft", "blue", "green", "red", "purple", "border"]
+
+  // Equatable: only re-render this row when its identity or selection state
+  // changes (the closure is intentionally ignored — its target doesn't change
+  // per row across renders during search filtering).
+  static func == (lhs: PresetCardRow, rhs: PresetCardRow) -> Bool {
+    lhs.preset.id == rhs.preset.id && lhs.isSelected == rhs.isSelected
+  }
 
   var body: some View {
     Button(action: action) {
@@ -1737,102 +1764,50 @@ struct StatusBar: View {
 
 // MARK: - Preferences Sheet
 
+// MARK: - Preferences (Apple System Settings style)
+//
+// Two-pane layout: category rail on the left, detail content on the right.
+// Each pane uses inset-grouped lists with rounded backgrounds, SF Symbol
+// glyphs in colored tiles, and trailing controls — mirroring macOS Sequoia's
+// System Settings.
+
+enum PrefCategory: String, CaseIterable, Identifiable {
+  case targets = "Apply Targets"
+  case backups = "Backups"
+  case storage = "Storage"
+
+  var id: String { rawValue }
+
+  var icon: String {
+    switch self {
+    case .targets: return "macwindow.on.rectangle"
+    case .backups: return "clock.arrow.circlepath"
+    case .storage: return "internaldrive.fill"
+    }
+  }
+
+  var tint: Color {
+    switch self {
+    case .targets: return Color(red: 0.30, green: 0.62, blue: 0.98)
+    case .backups: return Color(red: 0.95, green: 0.62, blue: 0.20)
+    case .storage: return Color(red: 0.40, green: 0.78, blue: 0.50)
+    }
+  }
+}
+
 struct PreferencesSheet: View {
   @ObservedObject var model: ThemeModel
   @Environment(\.themeChrome) private var theme
+  @State private var selection: PrefCategory = .targets
   @State private var showAddCustom = false
 
   var body: some View {
-    VStack(spacing: 0) {
-      HStack {
-        VStack(alignment: .leading, spacing: 2) {
-          Text("Preferences").font(.title2.weight(.semibold))
-          Text("Settings, target apps, and theme metadata")
-            .font(.caption).foregroundStyle(.secondary)
-        }
-        Spacer()
-        Button("Done") { model.showPreferences = false }
-          .keyboardShortcut(.defaultAction)
-          .buttonStyle(.borderedProminent)
-      }
-      .padding(20)
-      Divider().opacity(0.4)
-
-      ScrollView {
-        VStack(alignment: .leading, spacing: 20) {
-          prefSection(
-            "Glass Tint",
-            subtitle: "Hue and intensity for the Cursor Glass theme background"
-          ) {
-            VStack(alignment: .leading, spacing: 14) {
-              sliderRow(
-                label: "Hue",
-                value: Binding(get: { Double(model.tintHue) }, set: { model.tintHue = Int($0) }),
-                range: 0...360,
-                suffix: "°"
-              )
-              sliderRow(
-                label: "Intensity",
-                value: Binding(get: { Double(model.tintIntensity) }, set: { model.tintIntensity = Int($0) }),
-                range: 0...100,
-                suffix: "%"
-              )
-            }
-          }
-
-          prefSection(
-            "Apply Targets",
-            subtitle: "Choose which editors will receive theme updates on Apply"
-          ) {
-            VStack(spacing: 4) {
-              ForEach(model.allTargets) { target in
-                targetToggleRow(target)
-              }
-              Divider().opacity(0.3).padding(.vertical, 4)
-              Button {
-                showAddCustom = true
-              } label: {
-                HStack(spacing: 6) {
-                  Image(systemName: "plus.circle.fill")
-                  Text("เพิ่ม Editor เอง")
-                    .font(.system(.callout, design: .rounded).weight(.semibold))
-                  Spacer()
-                }
-                .padding(.horizontal, 8).padding(.vertical, 6)
-                .foregroundStyle(theme.accent)
-                .background(theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(theme.accent.opacity(0.3)))
-                .contentShape(Rectangle())
-              }
-              .buttonStyle(.plain)
-            }
-          }
-
-          prefSection(
-            "Backup Management",
-            subtitle: "ดู / กู้คืน / ลบ backup ของแต่ละ editor"
-          ) {
-            BackupSection(model: model)
-          }
-
-          prefSection(
-            "File Locations",
-            subtitle: "All paths used by the app"
-          ) {
-            VStack(alignment: .leading, spacing: 10) {
-              locationRow(label: "theme.json", path: themeURL.path) {
-                NSWorkspace.shared.activateFileViewerSelecting([themeURL])
-              }
-              locationRow(label: "Active settings.json", path: model.activeTarget.settingsURL.path) {
-                NSWorkspace.shared.open(model.activeTarget.userDir)
-              }
-            }
-          }
-        }
-        .padding(20)
-      }
+    HStack(spacing: 0) {
+      sidebar
+      Divider().opacity(0.3)
+      detail
     }
-    .frame(width: 560, height: 600)
+    .frame(width: 760, height: 580)
     .background(.background)
     .sheet(isPresented: $showAddCustom) {
       CustomTargetEditor(
@@ -1844,56 +1819,262 @@ struct PreferencesSheet: View {
     }
   }
 
-  private func prefSection<Content: View>(
-    _ title: String,
-    subtitle: String,
-    @ViewBuilder content: () -> Content
-  ) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
-      Text(title).font(.headline)
-      if !subtitle.isEmpty {
-        Text(subtitle).font(.caption).foregroundStyle(.secondary)
+  // MARK: Sidebar
+
+  private var sidebar: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      HStack(spacing: 8) {
+        Text("Settings")
+          .font(.system(.title3, design: .rounded).weight(.bold))
+        Spacer()
       }
-      content()
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.surface(0.04), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+      .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 10)
+
+      VStack(spacing: 2) {
+        ForEach(PrefCategory.allCases) { cat in
+          sidebarItem(cat)
+        }
+      }
+      .padding(.horizontal, 8)
+
+      Spacer()
+
+      HStack {
+        Spacer()
+        Button("Done") { model.showPreferences = false }
+          .keyboardShortcut(.defaultAction)
+          .buttonStyle(.borderedProminent)
+          .controlSize(.large)
+      }
+      .padding(16)
+    }
+    .frame(width: 220)
+    .background(theme.surface(0.025))
+  }
+
+  private func sidebarItem(_ cat: PrefCategory) -> some View {
+    let isActive = selection == cat
+    return Button {
+      selection = cat
+    } label: {
+      HStack(spacing: 10) {
+        IconTile(symbol: cat.icon, tint: cat.tint, size: 22)
+        Text(cat.rawValue)
+          .font(.system(.callout, design: .rounded).weight(.medium))
+          .foregroundStyle(.primary)
+        Spacer()
+      }
+      .padding(.horizontal, 8).padding(.vertical, 6)
+      .background(
+        RoundedRectangle(cornerRadius: 7, style: .continuous)
+          .fill(isActive ? theme.accent.opacity(0.18) : Color.clear)
+      )
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+  }
+
+  // MARK: Detail
+
+  @ViewBuilder
+  private var detail: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 20) {
+        Text(selection.rawValue)
+          .font(.system(.largeTitle, design: .rounded).weight(.bold))
+          .padding(.top, 6)
+
+        switch selection {
+        case .targets: targetsPane
+        case .backups: backupsPane
+        case .storage: storagePane
+        }
+        Spacer(minLength: 8)
+      }
+      .padding(.horizontal, 24).padding(.top, 16).padding(.bottom, 24)
+    }
+  }
+
+  // MARK: Panes
+
+  private var targetsPane: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      SettingsGroup(title: "Editors",
+                    footer: "เลือก editor ที่จะรับ theme ตอนกด Apply") {
+        ForEach(Array(model.allTargets.enumerated()), id: \.element.id) { idx, target in
+          if idx > 0 { SettingsDivider() }
+          TargetRow(model: model, target: target)
+            .padding(.horizontal, 4).padding(.vertical, 2)
+        }
+      }
+
+      Button {
+        showAddCustom = true
+      } label: {
+        HStack(spacing: 8) {
+          Image(systemName: "plus.circle.fill")
+            .font(.callout)
+          Text("เพิ่ม Editor เอง")
+            .font(.system(.callout, design: .rounded).weight(.semibold))
+          Spacer()
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .foregroundStyle(theme.accent)
+        .background(theme.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+    }
+  }
+
+  private var backupsPane: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      Text("Backup เก็บใน Backups/ ของแอป (แยกจาก folder ของ editor)")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      BackupSection(model: model)
+    }
+  }
+
+  private var storagePane: some View {
+    SettingsGroup(title: "File Locations",
+                  footer: "ตำแหน่งไฟล์ที่แอปใช้งาน — read-only ผู้ใช้ต้องจัดการผ่านแอป") {
+      pathRow(icon: "doc.text.fill", tint: .blue, label: "theme.json", path: themeURL.path)
+      SettingsDivider()
+      pathRow(icon: "macwindow", tint: .purple, label: "Active settings.json", path: model.activeTarget.settingsURL.path)
+      SettingsDivider()
+      pathRow(icon: "archivebox.fill", tint: .orange, label: "Backups folder", path: backupsRoot.path)
+    }
+  }
+
+  // MARK: Reusable bits
+
+  private func sliderControl(value: Binding<Double>, range: ClosedRange<Double>, suffix: String) -> some View {
+    HStack(spacing: 10) {
+      Slider(value: value, in: range).frame(width: 200)
+      Text("\(Int(value.wrappedValue))\(suffix)")
+        .font(.system(.callout, design: .monospaced))
+        .foregroundStyle(.secondary)
+        .frame(width: 50, alignment: .trailing)
+    }
+  }
+
+  private func pathRow(icon: String, tint: Color, label: String, path: String) -> some View {
+    SettingsRow(icon: icon, tint: tint, title: label) {
+      Text(path)
+        .font(.system(size: 11, design: .monospaced))
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .truncationMode(.middle)
+        .textSelection(.enabled)
+        .frame(maxWidth: 320, alignment: .trailing)
+    }
+  }
+}
+
+// MARK: - Settings UI primitives
+
+/// Colored rounded-square tile with an SF Symbol — the visual unit used by
+/// macOS / iOS System Settings rows.
+struct IconTile: View {
+  let symbol: String
+  let tint: Color
+  var size: CGFloat = 26
+
+  var body: some View {
+    RoundedRectangle(cornerRadius: size * 0.25, style: .continuous)
+      .fill(tint)
+      .frame(width: size, height: size)
+      .overlay(
+        Image(systemName: symbol)
+          .font(.system(size: size * 0.55, weight: .semibold))
+          .foregroundStyle(.white)
+      )
+  }
+}
+
+/// Inset-grouped list container — title above, footer caption below, rows
+/// inside a single rounded card with subtle background.
+struct SettingsGroup<Content: View>: View {
+  let title: String?
+  let footer: String?
+  @ViewBuilder var content: () -> Content
+  @Environment(\.themeChrome) private var theme
+
+  init(title: String? = nil, footer: String? = nil, @ViewBuilder content: @escaping () -> Content) {
+    self.title = title
+    self.footer = footer
+    self.content = content
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      if let t = title {
+        Text(t.uppercased())
+          .font(.system(size: 11, weight: .semibold, design: .rounded))
+          .tracking(0.6)
+          .foregroundStyle(.secondary)
+          .padding(.horizontal, 12)
+      }
+      VStack(spacing: 0) { content() }
+        .background(theme.surface(0.05), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
+          RoundedRectangle(cornerRadius: 12, style: .continuous)
             .stroke(theme.surface(0.06))
         )
-    }
-  }
-
-  private func sliderRow(label: String, value: Binding<Double>, range: ClosedRange<Double>, suffix: String) -> some View {
-    HStack(spacing: 12) {
-      Text(label).frame(width: 80, alignment: .leading)
-      Slider(value: value, in: range)
-      Text("\(Int(value.wrappedValue))\(suffix)")
-        .font(.system(.body, design: .monospaced))
-        .frame(width: 60, alignment: .trailing)
-    }
-  }
-
-  private func targetToggleRow(_ target: EditorTarget) -> some View {
-    TargetRow(model: model, target: target)
-  }
-
-  private func locationRow(label: String, path: String, reveal: @escaping () -> Void) -> some View {
-    HStack(alignment: .top, spacing: 10) {
-      VStack(alignment: .leading, spacing: 2) {
-        Text(label).font(.caption.weight(.semibold))
-        Text(path)
-          .font(.system(size: 11, design: .monospaced))
+      if let f = footer {
+        Text(f)
+          .font(.caption2)
           .foregroundStyle(.secondary)
-          .lineLimit(2)
-          .truncationMode(.middle)
+          .padding(.horizontal, 12)
+          .padding(.top, 2)
       }
-      Spacer()
-      Button("Reveal") { reveal() }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
     }
+  }
+}
+
+/// Single row inside a SettingsGroup. Icon tile + title on the left, free-form
+/// trailing content on the right (text, toggle, slider, disclosure, etc.).
+struct SettingsRow<Trailing: View>: View {
+  let icon: String
+  let tint: Color
+  let title: String
+  var subtitle: String? = nil
+  @ViewBuilder var trailing: () -> Trailing
+
+  init(icon: String, tint: Color, title: String, subtitle: String? = nil, @ViewBuilder trailing: @escaping () -> Trailing) {
+    self.icon = icon
+    self.tint = tint
+    self.title = title
+    self.subtitle = subtitle
+    self.trailing = trailing
+  }
+
+  var body: some View {
+    HStack(spacing: 12) {
+      IconTile(symbol: icon, tint: tint)
+      VStack(alignment: .leading, spacing: 1) {
+        Text(title).font(.callout)
+        if let s = subtitle {
+          Text(s).font(.caption2).foregroundStyle(.secondary)
+        }
+      }
+      Spacer(minLength: 8)
+      trailing()
+    }
+    .padding(.horizontal, 14).padding(.vertical, 10)
+    .frame(minHeight: 44)
+  }
+}
+
+/// Hairline divider used between rows inside a SettingsGroup.
+struct SettingsDivider: View {
+  @Environment(\.themeChrome) private var theme
+  var body: some View {
+    Rectangle()
+      .fill(theme.surface(0.08))
+      .frame(height: 0.5)
+      .padding(.leading, 52) // align with row content (after icon tile)
   }
 }
 
@@ -1902,28 +2083,44 @@ struct PreferencesSheet: View {
 struct AppMark: View {
   let colors: [String: String]
 
+  /// Loaded once from the app bundle's AppIcon.png so the in-app brand mark
+  /// matches the actual macOS icon (Dock / Finder / etc.) instead of a
+  /// hand-rolled gradient.
+  private static let bundledIcon: NSImage? = {
+    if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "png") {
+      return NSImage(contentsOf: url)
+    }
+    return nil
+  }()
+
   var body: some View {
-    ZStack {
-      RoundedRectangle(cornerRadius: 9, style: .continuous)
-        .fill(
-          LinearGradient(
-            colors: [
-              Color(red: 0.78, green: 0.72, blue: 0.95),  // soft lavender
-              Color(red: 0.95, green: 0.78, blue: 0.88),  // soft rose
-              Color(red: 0.72, green: 0.85, blue: 0.95)   // soft sky
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-          )
-        )
-        .overlay(
+    Group {
+      if let img = AppMark.bundledIcon {
+        Image(nsImage: img)
+          .resizable()
+          .interpolation(.high)
+          .aspectRatio(contentMode: .fit)
+          .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+      } else {
+        // Fallback if AppIcon is missing — keep the legacy gradient + symbol.
+        ZStack {
           RoundedRectangle(cornerRadius: 9, style: .continuous)
-            .stroke(.white.opacity(0.25))
-        )
-      Image(systemName: "paintpalette.fill")
-        .font(.system(size: 13, weight: .semibold))
-        .foregroundStyle(.white.opacity(0.95))
-        .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
+            .fill(
+              LinearGradient(
+                colors: [
+                  Color(red: 0.78, green: 0.72, blue: 0.95),
+                  Color(red: 0.95, green: 0.78, blue: 0.88),
+                  Color(red: 0.72, green: 0.85, blue: 0.95)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+              )
+            )
+          Image(systemName: "paintpalette.fill")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.95))
+        }
+      }
     }
   }
 }
@@ -1972,37 +2169,8 @@ struct TargetRow: View {
             .truncationMode(.middle)
         }
         Spacer(minLength: 8)
-        VStack(alignment: .trailing, spacing: 4) {
-          readinessTag(target.detectionStatus)
-          HStack(spacing: 4) {
-            if target.isCustom {
-              Button { showEditSheet = true } label: {
-                Image(systemName: "pencil").font(.system(size: 10))
-              }
-              .buttonStyle(.borderless)
-              .help("แก้ไขชื่อหรือ path ของ editor ที่เพิ่มเอง")
-              Button { model.removeCustomTarget(id: target.id) } label: {
-                Image(systemName: "trash").font(.system(size: 10))
-              }
-              .buttonStyle(.borderless)
-              .help("ลบ editor ที่เพิ่มเองออกจากรายการ")
-              .foregroundStyle(theme.danger)
-            } else {
-              Button { pickCustomPath() } label: {
-                Image(systemName: "folder.badge.gearshape").font(.system(size: 10))
-              }
-              .buttonStyle(.borderless)
-              .help("ตั้ง path ของ settings.json เอง — ใช้เมื่อ editor ลงในตำแหน่งที่แอปหาไม่เจอ")
-              if target.pathOverride != nil {
-                Button { model.setOverride(targetID: target.id, path: nil) } label: {
-                  Image(systemName: "arrow.counterclockwise").font(.system(size: 10))
-                }
-                .buttonStyle(.borderless)
-                .help("กลับไปใช้ path มาตรฐาน — ลบ path ที่ตั้งเองออก")
-              }
-            }
-          }
-        }
+        statusIndicator(target.detectionStatus)
+        actionMenu
       }
     }
     .toggleStyle(.checkbox)
@@ -2045,17 +2213,56 @@ struct TargetRow: View {
       .background(color.opacity(0.16), in: Capsule())
   }
 
-  private func readinessTag(_ status: DetectionStatus) -> some View {
-    HStack(spacing: 4) {
-      Image(systemName: status.icon)
-        .font(.system(size: 9, weight: .bold))
+  /// Apple-style minimal status: a small colored dot + faint label.
+  /// Replaces the louder pill+icon-stack so the row reads cleanly.
+  private func statusIndicator(_ status: DetectionStatus) -> some View {
+    HStack(spacing: 6) {
+      Circle()
+        .fill(tagColor(status))
+        .frame(width: 7, height: 7)
+        .overlay(
+          Circle().stroke(tagColor(status).opacity(0.35), lineWidth: 2)
+            .blur(radius: 0.5)
+        )
       Text(status.rawValue)
-        .font(.system(.caption2, design: .rounded).weight(.bold))
+        .font(.caption.weight(.medium))
+        .foregroundStyle(.secondary)
     }
-    .padding(.horizontal, 7).padding(.vertical, 3)
-    .foregroundStyle(tagColor(status))
-    .background(Capsule().fill(tagColor(status).opacity(0.14)))
-    .overlay(Capsule().stroke(tagColor(status).opacity(0.3)))
+  }
+
+  /// Single ••• menu replacing the row of tiny icon buttons. Lets all actions
+  /// stay accessible without visually crowding the row.
+  @ViewBuilder
+  private var actionMenu: some View {
+    Menu {
+      if target.isCustom {
+        Button {
+          showEditSheet = true
+        } label: { Label("แก้ไข", systemImage: "pencil") }
+        Button(role: .destructive) {
+          model.removeCustomTarget(id: target.id)
+        } label: { Label("ลบ", systemImage: "trash") }
+      } else {
+        Button {
+          pickCustomPath()
+        } label: { Label("ตั้ง path เอง…", systemImage: "folder.badge.gearshape") }
+        if target.pathOverride != nil {
+          Button {
+            model.setOverride(targetID: target.id, path: nil)
+          } label: { Label("กลับไปใช้ path มาตรฐาน", systemImage: "arrow.counterclockwise") }
+        }
+      }
+    } label: {
+      Image(systemName: "ellipsis")
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundStyle(.secondary)
+        .frame(width: 26, height: 26)
+        .contentShape(Rectangle())
+    }
+    .menuStyle(.borderlessButton)
+    .menuIndicator(.hidden)
+    .frame(width: 28)
+    .help(target.isCustom ? "ตัวเลือก editor ที่เพิ่มเอง" : "ตั้งค่า path / ตัวเลือกอื่น")
   }
 
   private func tagColor(_ status: DetectionStatus) -> Color {
@@ -2258,6 +2465,232 @@ struct ValidationBanner: View {
   }
 }
 
+// MARK: - Confirm Backup Sheet (Apple-style minimal alert)
+
+struct ConfirmBackupSheet: View {
+  @ObservedObject var model: ThemeModel
+  @Environment(\.themeChrome) private var theme
+
+  var body: some View {
+    AlertCard(
+      symbol: "tray.and.arrow.down.fill",
+      tone: theme.accent,
+      title: "สำรอง settings.json",
+      message: "สร้าง snapshot ของ \(model.applyTargets.count) target ไว้กู้คืนภายหลัง",
+      cancel: ("ยกเลิก", { model.pendingBackupConfirmation = false }),
+      confirm: ("สำรอง", {
+        model.pendingBackupConfirmation = false
+        model.backupFromUI()
+      })
+    )
+  }
+}
+
+// MARK: - Confirm Reload Sheet (Apple-style minimal alert)
+
+struct ConfirmReloadSheet: View {
+  @ObservedObject var model: ThemeModel
+  @Environment(\.themeChrome) private var theme
+
+  private var hasUnsavedEdits: Bool { !model.detailOverrides.isEmpty }
+
+  var body: some View {
+    AlertCard(
+      symbol: hasUnsavedEdits ? "exclamationmark.triangle.fill" : "arrow.clockwise",
+      tone: hasUnsavedEdits ? theme.warning : theme.accent,
+      title: "รีโหลดจากดิสก์",
+      message: hasUnsavedEdits
+        ? "มี \(model.detailOverrides.count) override ที่ยังไม่ Apply — รีโหลดแล้วจะหาย"
+        : "อัปเดต preview ให้ตรงกับไฟล์บน disk",
+      cancel: ("ยกเลิก", { model.pendingReloadConfirmation = false }),
+      confirm: ("รีโหลด", {
+        model.pendingReloadConfirmation = false
+        model.reloadFromUI()
+      })
+    )
+  }
+}
+
+// MARK: - Reusable Apple-style Alert Card
+//
+// Compact alert: large symbol on top, single-line title, one supporting line,
+// then Cancel + primary action. Mirrors macOS / iOS system alert proportions.
+
+struct AlertCard: View {
+  let symbol: String
+  let tone: Color
+  let title: String
+  let message: String
+  let cancel: (String, () -> Void)
+  let confirm: (String, () -> Void)
+
+  var body: some View {
+    VStack(spacing: 16) {
+      ZStack {
+        Circle().fill(tone.opacity(0.15)).frame(width: 56, height: 56)
+        Image(systemName: symbol)
+          .font(.system(size: 24, weight: .semibold))
+          .foregroundStyle(tone)
+      }
+      .padding(.top, 4)
+
+      VStack(spacing: 6) {
+        Text(title)
+          .font(.system(.title3, design: .rounded).weight(.semibold))
+          .multilineTextAlignment(.center)
+        Text(message)
+          .font(.callout)
+          .foregroundStyle(.secondary)
+          .multilineTextAlignment(.center)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+      .padding(.horizontal, 8)
+
+      HStack(spacing: 10) {
+        Button(cancel.0, action: cancel.1)
+          .keyboardShortcut(.cancelAction)
+          .buttonStyle(.bordered)
+          .controlSize(.large)
+          .frame(maxWidth: .infinity)
+        Button(confirm.0, action: confirm.1)
+          .keyboardShortcut(.defaultAction)
+          .buttonStyle(.borderedProminent)
+          .controlSize(.large)
+          .tint(tone)
+          .frame(maxWidth: .infinity)
+      }
+      .padding(.top, 4)
+    }
+    .padding(24)
+    .frame(width: 360)
+  }
+}
+
+// MARK: - Backup Result Sheet (Apple-style)
+
+struct BackupResultSheet: View {
+  @ObservedObject var model: ThemeModel
+  let outcome: ThemeModel.BackupOutcome
+  @Environment(\.themeChrome) private var theme
+
+  var body: some View {
+    switch outcome {
+    case .success(let files) where !files.isEmpty:
+      ResultCard(
+        symbol: "checkmark.circle.fill",
+        tone: theme.success,
+        title: "สำรองเรียบร้อย",
+        message: "สร้าง snapshot \(files.count) ไฟล์ — จัดการได้ที่ ตั้งค่า → Backup Management",
+        primary: ("เสร็จสิ้น", { model.backupResult = nil }),
+        secondary: nil
+      )
+    case .success:
+      ResultCard(
+        symbol: "tray",
+        tone: theme.accent,
+        title: "ไม่มีอะไรให้สำรอง",
+        message: "ยังไม่มี settings.json บน disk สำหรับ target ที่เลือก",
+        primary: ("เข้าใจแล้ว", { model.backupResult = nil }),
+        secondary: nil
+      )
+    case .failure(let message):
+      ResultCard(
+        symbol: "xmark.circle.fill",
+        tone: theme.danger,
+        title: "สำรองไม่สำเร็จ",
+        message: message,
+        primary: ("ปิด", { model.backupResult = nil }),
+        secondary: nil
+      )
+    }
+  }
+}
+
+// MARK: - Reload Result Sheet (Apple-style)
+
+struct ReloadResultSheet: View {
+  @ObservedObject var model: ThemeModel
+  let outcome: ThemeModel.ReloadOutcome
+  @Environment(\.themeChrome) private var theme
+
+  var body: some View {
+    switch outcome {
+    case .success(let palette, let keys, _, _):
+      ResultCard(
+        symbol: "checkmark.circle.fill",
+        tone: theme.success,
+        title: "รีโหลดเรียบร้อย",
+        message: "\(palette) สี · \(keys) keys",
+        primary: ("เสร็จสิ้น", { model.reloadResult = nil }),
+        secondary: nil
+      )
+    case .failure(let message):
+      ResultCard(
+        symbol: "xmark.circle.fill",
+        tone: theme.danger,
+        title: "รีโหลดไม่สำเร็จ",
+        message: message,
+        primary: ("ปิด", { model.reloadResult = nil }),
+        secondary: nil
+      )
+    }
+  }
+}
+
+// MARK: - Reusable Apple-style Result Card
+
+struct ResultCard: View {
+  let symbol: String
+  let tone: Color
+  let title: String
+  let message: String
+  let primary: (String, () -> Void)
+  let secondary: (String, () -> Void)?
+
+  var body: some View {
+    VStack(spacing: 16) {
+      ZStack {
+        Circle().fill(tone.opacity(0.15)).frame(width: 56, height: 56)
+        Image(systemName: symbol)
+          .font(.system(size: 26, weight: .semibold))
+          .foregroundStyle(tone)
+      }
+      .padding(.top, 4)
+
+      VStack(spacing: 6) {
+        Text(title)
+          .font(.system(.title3, design: .rounded).weight(.semibold))
+          .multilineTextAlignment(.center)
+        Text(message)
+          .font(.callout)
+          .foregroundStyle(.secondary)
+          .multilineTextAlignment(.center)
+          .fixedSize(horizontal: false, vertical: true)
+          .lineLimit(3)
+      }
+      .padding(.horizontal, 8)
+
+      VStack(spacing: 8) {
+        Button(primary.0, action: primary.1)
+          .keyboardShortcut(.defaultAction)
+          .buttonStyle(.borderedProminent)
+          .controlSize(.large)
+          .tint(tone)
+          .frame(maxWidth: .infinity)
+        if let s = secondary {
+          Button(s.0, action: s.1)
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .frame(maxWidth: .infinity)
+        }
+      }
+      .padding(.top, 4)
+    }
+    .padding(24)
+    .frame(width: 360)
+  }
+}
+
 // MARK: - Confirm Apply Sheet
 
 struct ConfirmApplySheet: View {
@@ -2415,7 +2848,7 @@ struct ApplyResultSheet: View {
       if case .success = outcome { return true } else { return false }
     }()
     let isPartial: Bool = {
-      if case .failure(_, let partial) = outcome, !partial.isEmpty { return true }
+      if case .failure(_, let partial, _) = outcome, !partial.isEmpty { return true }
       return false
     }()
 
@@ -2458,12 +2891,15 @@ struct ApplyResultSheet: View {
           .font(.caption)
           .foregroundStyle(.secondary)
       }
-    case .failure(let message, let partial):
+    case .failure(let message, let partial, let corrupted):
       VStack(alignment: .leading, spacing: 14) {
         if !partial.isEmpty {
           Label("Apply สำเร็จบางส่วน: \(partial.joined(separator: ", "))",
                 systemImage: "checkmark.circle.fill")
             .foregroundStyle(theme.success)
+        }
+        if !corrupted.isEmpty {
+          corruptedRecoverySection(corrupted)
         }
         Text("Errors:").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
         ScrollView {
@@ -2479,17 +2915,57 @@ struct ApplyResultSheet: View {
     }
   }
 
+  @ViewBuilder
+  private func corruptedRecoverySection(_ items: [ThemeModel.CorruptedTargetInfo]) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Label("Source settings.json เสียอยู่แล้วก่อน apply",
+            systemImage: "exclamationmark.triangle.fill")
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(theme.warning)
+      ForEach(items) { info in
+        HStack(alignment: .top, spacing: 10) {
+          VStack(alignment: .leading, spacing: 2) {
+            Text(info.targetName).font(.caption.weight(.semibold))
+            if let b = info.latestValidBackup {
+              Text("Backup ล่าสุดที่ valid: \(b.displayDate) (\(b.size) bytes)")
+                .font(.caption2).foregroundStyle(.secondary)
+            } else {
+              Text("ไม่พบ backup ที่ valid — ต้องแก้ settings.json ด้วยตนเอง")
+                .font(.caption2).foregroundStyle(theme.danger)
+            }
+          }
+          Spacer()
+          if info.latestValidBackup != nil {
+            Button {
+              if model.restoreLatestValidBackup(for: info) {
+                model.applyResult = nil
+              }
+            } label: {
+              Label("กู้คืน", systemImage: "arrow.uturn.backward.circle.fill")
+            }
+            .controlSize(.small)
+            .buttonStyle(.borderedProminent)
+            .tint(theme.warning)
+            .help("เขียน backup ล่าสุดที่ valid ทับ settings.json ปัจจุบัน แล้วกด Apply อีกครั้ง")
+          }
+        }
+        .padding(8)
+        .background(theme.warning.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+      }
+    }
+  }
+
   private var headlineText: String {
     switch outcome {
     case .success: return "Apply สำเร็จ"
-    case .failure(_, let partial): return partial.isEmpty ? "Apply ล้มเหลว" : "Apply สำเร็จบางส่วน"
+    case .failure(_, let partial, _): return partial.isEmpty ? "Apply ล้มเหลว" : "Apply สำเร็จบางส่วน"
     }
   }
 
   private var subtitleText: String {
     switch outcome {
     case .success(let t): return "เขียน \(t.count) target สำเร็จ"
-    case .failure(_, let p): return p.isEmpty ? "ไม่มี target ใดเขียนสำเร็จ" : "\(p.count) สำเร็จ ยังเหลือบาง target ที่ error"
+    case .failure(_, let p, _): return p.isEmpty ? "ไม่มี target ใดเขียนสำเร็จ" : "\(p.count) สำเร็จ ยังเหลือบาง target ที่ error"
     }
   }
 }
@@ -2728,15 +3204,6 @@ struct BackupSection: View {
       .buttonStyle(.borderless)
       .help("กู้คืน — เขียน backup นี้ทับ settings.json ปัจจุบันของ editor (จะมี modal ยืนยันก่อน)")
       .foregroundStyle(theme.accent)
-
-      Button {
-        NSWorkspace.shared.activateFileViewerSelecting([backup.url])
-      } label: {
-        Image(systemName: "folder")
-          .font(.system(size: 13))
-      }
-      .buttonStyle(.borderless)
-      .help("เปิดตำแหน่งไฟล์ backup ใน Finder")
 
       Button {
         pendingDelete = PendingItem(id: "del-" + backup.id, target: target, backup: backup)

@@ -5,6 +5,23 @@ let appSupportRoot = FileManager.default.homeDirectoryForCurrentUser
   .appendingPathComponent("Library/Application Support")
 let studioDir = appSupportRoot.appendingPathComponent("Workbench Theme Studio")
 let themeURL = studioDir.appendingPathComponent("theme.json")
+let backupsRoot = studioDir.appendingPathComponent("Backups")
+
+/// Stable, filesystem-safe folder name keyed by absolute source path.
+/// Backups for `<X>/settings.json` go under `Backups/<encoded-path>/` so we
+/// never clutter the editor's own User folder.
+func backupFolderName(for sourceURL: URL) -> String {
+  let path = sourceURL.standardizedFileURL.path
+  let b64 = Data(path.utf8).base64EncodedString()
+    .replacingOccurrences(of: "+", with: "-")
+    .replacingOccurrences(of: "/", with: "_")
+    .replacingOccurrences(of: "=", with: "")
+  return b64
+}
+
+func backupsDirectory(for sourceURL: URL) -> URL {
+  backupsRoot.appendingPathComponent(backupFolderName(for: sourceURL))
+}
 
 enum DetectionStatus: String {
   case ready = "พร้อม"
@@ -138,7 +155,14 @@ struct ThemePreset: Identifiable, Hashable {
   let colors: [String: String]
 
   /// True when bg0 luminance is high enough to be a light theme.
+  /// Result is cached per-id at module load (see `darkPresetIDs` / `lightPresetIDs`)
+  /// so the hot path on every render is a Set lookup, not a hex-parse + math.
   var isLight: Bool {
+    if let cached = lightPresetIDs[id] { return cached }
+    return computeIsLight()
+  }
+
+  fileprivate func computeIsLight() -> Bool {
     let raw = (colors["bg0"] ?? "#000000")
     let nsc = nsColor(from: raw)
     let r = Double(nsc.redComponent)
@@ -697,10 +721,36 @@ let presets: [ThemePreset] = [
   ])
 ]
 
+// Precompute light/dark classification once at module load — the popover renders
+// hundreds of swatches and asking each preset to recompute its `isLight` on every
+// body pass triggered measurable jank. Lookup is now O(1) by id.
+let lightPresetIDs: [String: Bool] = Dictionary(
+  uniqueKeysWithValues: presets.map { ($0.id, $0.computeIsLight()) }
+)
+let darkPresetsList: [ThemePreset] = presets.filter { lightPresetIDs[$0.id] == false }
+let lightPresetsList: [ThemePreset] = presets.filter { lightPresetIDs[$0.id] == true }
+
+// Thread-safe memoization cache for hex→NSColor parsing. Hex strings repeat
+// constantly across previews, swatches, presets, etc., so caching turns the
+// hot path into a single dictionary lookup.
+private let nsColorCacheLock = NSLock()
+nonisolated(unsafe) private var nsColorCache: [String: NSColor] = [:]
+
 func nsColor(from hex: String) -> NSColor {
+  nsColorCacheLock.lock()
+  if let cached = nsColorCache[hex] {
+    nsColorCacheLock.unlock()
+    return cached
+  }
+  nsColorCacheLock.unlock()
+
   var raw = hex.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
   if raw.hasPrefix("#") { raw.removeFirst() }
-  if raw.count < 6 { return .black }
+  if raw.count < 6 {
+    let fallback = NSColor.black
+    nsColorCacheLock.lock(); nsColorCache[hex] = fallback; nsColorCacheLock.unlock()
+    return fallback
+  }
   let rgb = String(raw.prefix(6))
   let scanner = Scanner(string: rgb)
   var value: UInt64 = 0
@@ -708,7 +758,13 @@ func nsColor(from hex: String) -> NSColor {
   let r = CGFloat((value & 0xFF0000) >> 16) / 255
   let g = CGFloat((value & 0x00FF00) >> 8) / 255
   let b = CGFloat(value & 0x0000FF) / 255
-  return NSColor(calibratedRed: r, green: g, blue: b, alpha: 1)
+  let result = NSColor(calibratedRed: r, green: g, blue: b, alpha: 1)
+  nsColorCacheLock.lock()
+  // Cap cache size to keep memory bounded.
+  if nsColorCache.count > 4096 { nsColorCache.removeAll(keepingCapacity: true) }
+  nsColorCache[hex] = result
+  nsColorCacheLock.unlock()
+  return result
 }
 
 func hex(from color: NSColor, alphaSuffix: String = "") -> String {
@@ -725,7 +781,8 @@ func alphaSuffix(_ hex: String) -> String {
 }
 
 func uniqueBackupURL(for url: URL, stamp: String) -> URL {
-  let directory = url.deletingLastPathComponent()
+  let directory = backupsDirectory(for: url)
+  try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
   let baseName = "\(url.lastPathComponent).backup-\(stamp)"
   var candidate = directory.appendingPathComponent(baseName)
   var index = 2
@@ -814,8 +871,6 @@ final class ThemeModel: ObservableObject {
   @Published var detailOrder: [String] = []
   @Published var detailOverrides: [String: String] = [:]
   @Published var detailCategories: [ColorCategory] = []
-  @Published var tintHue = 188
-  @Published var tintIntensity = 30
   @Published var selectedPreset = presets[0]
   @Published var selectedBaseCategory = baseCategories[0]
   @Published var selectedDetailCategoryID = "surfaces"
@@ -851,13 +906,54 @@ final class ThemeModel: ObservableObject {
   @Published var isApplying: Bool = false
   @Published var applyResult: ApplyOutcome? = nil
 
+  // Confirmation modals for non-Apply toolbar actions.
+  @Published var pendingBackupConfirmation: Bool = false
+  @Published var pendingReloadConfirmation: Bool = false
+
+  // Result modals so the user always gets explicit success/fail feedback,
+  // not just a status-bar update.
+  @Published var backupResult: BackupOutcome? = nil
+  @Published var reloadResult: ReloadOutcome? = nil
+
+  enum BackupOutcome: Identifiable {
+    case success(files: [URL])
+    case failure(message: String)
+    var id: String {
+      switch self {
+      case .success(let f): return "ok-\(f.count)-\(f.first?.lastPathComponent ?? "")"
+      case .failure(let m): return "fail-\(m)"
+      }
+    }
+  }
+
+  enum ReloadOutcome: Identifiable {
+    case success(paletteCount: Int, keyCount: Int, liveCount: Int, targetName: String)
+    case failure(message: String)
+    var id: String {
+      switch self {
+      case .success(let p, let k, let l, let t): return "ok-\(p)-\(k)-\(l)-\(t)"
+      case .failure(let m): return "fail-\(m)"
+      }
+    }
+  }
+
+  /// Per-target detail surfaced when Apply detected the source settings.json was
+  /// already structurally broken before we touched it. Lets the failure modal offer
+  /// a one-click "restore latest valid backup" recovery action per target.
+  struct CorruptedTargetInfo: Identifiable, Hashable {
+    let id: String          // == target.id
+    let targetName: String
+    let settingsPath: String
+    let latestValidBackup: BackupFile?
+  }
+
   enum ApplyOutcome: Identifiable {
     case success(targets: [String])
-    case failure(message: String, partial: [String])
+    case failure(message: String, partial: [String], corrupted: [CorruptedTargetInfo])
     var id: String {
       switch self {
       case .success(let t): return "ok-\(t.joined())"
-      case .failure(let m, _): return "fail-\(m)"
+      case .failure(let m, _, _): return "fail-\(m)"
       }
     }
   }
@@ -1104,7 +1200,8 @@ final class ThemeModel: ObservableObject {
   }
 
   func listBackups(forSettingsAt url: URL) -> [BackupFile] {
-    let dir = url.deletingLastPathComponent()
+    migrateLegacyBackups(forSettingsAt: url)
+    let dir = backupsDirectory(for: url)
     let baseName = url.lastPathComponent
     let prefix = "\(baseName).backup-"
     guard let entries = try? FileManager.default.contentsOfDirectory(
@@ -1122,14 +1219,79 @@ final class ThemeModel: ObservableObject {
       .sorted { $0.date > $1.date }
   }
 
+  /// One-time best-effort move of legacy backups (which used to sit next to the
+  /// source `settings.json` inside each editor's User folder) into the centralized
+  /// `Backups/<encoded-path>/` directory. Idempotent — safe to call repeatedly.
+  private func migrateLegacyBackups(forSettingsAt url: URL) {
+    let fm = FileManager.default
+    let legacyDir = url.deletingLastPathComponent()
+    let newDir = backupsDirectory(for: url)
+    // If legacy and new dir resolve to the same place (shouldn't, but defensively),
+    // skip to avoid moving files onto themselves.
+    if legacyDir.standardizedFileURL.path == newDir.standardizedFileURL.path { return }
+    let baseName = url.lastPathComponent
+    let prefix = "\(baseName).backup-"
+    guard let entries = try? fm.contentsOfDirectory(at: legacyDir, includingPropertiesForKeys: nil) else { return }
+    let legacy = entries.filter { $0.lastPathComponent.hasPrefix(prefix) }
+    guard !legacy.isEmpty else { return }
+    try? fm.createDirectory(at: newDir, withIntermediateDirectories: true)
+    for src in legacy {
+      var dst = newDir.appendingPathComponent(src.lastPathComponent)
+      var i = 2
+      while fm.fileExists(atPath: dst.path) {
+        dst = newDir.appendingPathComponent("\(src.lastPathComponent)-\(i)")
+        i += 1
+      }
+      try? fm.moveItem(at: src, to: dst)
+    }
+  }
+
+  /// Most recent backup whose contents pass the brace/bracket sanity check.
+  /// Used by the apply-failure recovery flow when the source file is already corrupt.
+  func latestValidBackup(forSettingsAt url: URL) -> BackupFile? {
+    let backups = listBackups(forSettingsAt: url)
+    for b in backups {
+      guard let s = try? String(contentsOf: b.url, encoding: .utf8) else { continue }
+      if SettingsPatcher.hasBalancedBrackets(s) { return b }
+    }
+    return nil
+  }
+
   /// Restore a backup by overwriting the target's settings.json.
+  /// After the write, sync in-memory app + preview state to the restored content
+  /// so the UI reflects exactly what's now on disk (not the user's pre-rollback edits).
   func restoreBackup(_ backup: BackupFile, to settingsURL: URL) throws {
     let data = try Data(contentsOf: backup.url)
     try data.write(to: settingsURL, options: .atomic)
     if settingsURL.path == activeTarget.settingsURL.path {
-      loadTargetWorkbenchColors()
+      syncStateFromRestoredSettings()
     }
-    status = "Restored \(backup.originalName) from \(backup.displayDate)"
+    status = "Restored \(backup.originalName) from \(backup.displayDate) · preview synced"
+  }
+
+  /// Re-sync in-memory state to the active target's settings.json on disk.
+  /// Called after a rollback so the app + preview match what was just restored:
+  ///   - targetWorkbenchColors refreshed from disk
+  ///   - detailOverrides cleared (any unsaved user edits are dropped intentionally)
+  ///   - detailColors aligned with disk values (for keys present in the restored file)
+  ///   - glass tint values pulled from disk if present
+  private func syncStateFromRestoredSettings() {
+    loadTargetWorkbenchColors()
+    detailOverrides.removeAll()
+    for (k, v) in targetWorkbenchColors {
+      detailColors[k] = v
+    }
+  }
+
+  /// Best-effort scalar int reader for a top-level `"key": <int>` pair in JSONC text.
+  private func readScalarInt(in text: String, key: String) -> Int? {
+    let escaped = NSRegularExpression.escapedPattern(for: key)
+    let pattern = "\"\(escaped)\"\\s*:\\s*(-?[0-9]+)"
+    guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+    let range = NSRange(text.startIndex..<text.endIndex, in: text)
+    guard let match = regex.firstMatch(in: text, range: range), match.numberOfRanges > 1,
+          let r = Range(match.range(at: 1), in: text) else { return nil }
+    return Int(text[r])
   }
 
   func deleteBackup(_ backup: BackupFile) throws {
@@ -1144,9 +1306,6 @@ final class ThemeModel: ObservableObject {
 
       colors = doc.colors.values
       order = doc.colors.keys
-
-      if let hue = doc.themeSettings["glass.theme.customTintHue"]?.asInt { tintHue = hue }
-      if let inten = doc.themeSettings["glass.theme.customTintIntensity"]?.asInt { tintIntensity = inten }
 
       let applier = ThemeApplier(document: doc)
       let pairs = applier.renderWorkbenchPairs()
@@ -1186,8 +1345,42 @@ final class ThemeModel: ObservableObject {
       loadTargetWorkbenchColors()
       let liveCount = targetWorkbenchColors.count
       status = "Loaded theme.json (\(colors.count) palette · \(pairs.count) keys) · \(activeTarget.name) on disk: \(liveCount) live keys"
+      lastReloadStats = (palette: colors.count, keys: pairs.count, live: liveCount, target: activeTarget.name)
+      lastReloadError = nil
     } catch {
       status = "Reload failed: \(error.localizedDescription)"
+      lastReloadStats = nil
+      lastReloadError = error.localizedDescription
+    }
+  }
+
+  // Snapshots of the most recent reload outcome — used by `reloadFromUI()`
+  // to populate the result modal after the user explicitly clicks Reload.
+  private var lastReloadStats: (palette: Int, keys: Int, live: Int, target: String)? = nil
+  private var lastReloadError: String? = nil
+
+  /// User-initiated reload (from the toolbar button after confirmation).
+  /// Wraps `reload()` and surfaces an explicit success/failure modal so the
+  /// user gets concrete feedback instead of just a status-bar update.
+  func reloadFromUI() {
+    reload()
+    if let s = lastReloadStats {
+      reloadResult = .success(paletteCount: s.palette, keyCount: s.keys,
+                              liveCount: s.live, targetName: s.target)
+    } else {
+      reloadResult = .failure(message: lastReloadError ?? "Unknown error")
+    }
+  }
+
+  /// User-initiated backup (from the toolbar button after confirmation).
+  /// Always shows a success/failure modal, even if no files were backed up
+  /// (e.g. all targets had no settings.json yet).
+  func backupFromUI() {
+    do {
+      let files = try backup()
+      backupResult = .success(files: files)
+    } catch {
+      backupResult = .failure(message: error.localizedDescription)
     }
   }
 
@@ -1316,8 +1509,10 @@ final class ThemeModel: ObservableObject {
         doc.uiOverrides[key] = v.uppercased()
       }
 
-      doc.themeSettings["glass.theme.customTintHue"] = .int(tintHue)
-      doc.themeSettings["glass.theme.customTintIntensity"] = .int(tintIntensity)
+      // Strip any legacy Cursor-only glass.* keys from theme.json — the app
+      // now writes a single universal theme that works across every editor.
+      doc.themeSettings.removeValue(forKey: "glass.theme.customTintHue")
+      doc.themeSettings.removeValue(forKey: "glass.theme.customTintIntensity")
 
       doc.targetCustomization.pathOverrides = pathOverrides
       doc.targetCustomization.custom = customTargets.map { t in
@@ -1339,8 +1534,10 @@ final class ThemeModel: ObservableObject {
 
       var appliedNames: [String] = []
       var failedDetails: [String] = []
+      var corrupted: [CorruptedTargetInfo] = []
       for target in applyTargets {
-        let options: ThemeApplier.ApplyOptions = (target.id == "cursor") ? .cursor : .standard
+        // Universal apply — same options for every editor (Cursor, VS Code, etc.)
+        let options: ThemeApplier.ApplyOptions = .universal
         // 1. Snapshot current settings.json (no-op if file doesn't exist).
         let preBackup = try? makeBackup(of: target.settingsURL)
         do {
@@ -1357,6 +1554,17 @@ final class ThemeModel: ObservableObject {
             try? FileManager.default.removeItem(at: b)
           }
           failedDetails.append("\(target.name): \(error.localizedDescription)")
+          // If this was the source-corrupt pre-flight (code 98), record details so
+          // the failure modal can offer a per-target restore button.
+          let nsErr = error as NSError
+          if nsErr.domain == "Theme" && nsErr.code == 98 {
+            corrupted.append(CorruptedTargetInfo(
+              id: target.id,
+              targetName: target.name,
+              settingsPath: target.settingsURL.path,
+              latestValidBackup: latestValidBackup(forSettingsAt: target.settingsURL)
+            ))
+          }
         }
       }
 
@@ -1368,11 +1576,26 @@ final class ThemeModel: ObservableObject {
       } else {
         let summary = failedDetails.joined(separator: "\n")
         status = "Apply finished with errors"
-        applyResult = .failure(message: summary, partial: appliedNames)
+        applyResult = .failure(message: summary, partial: appliedNames, corrupted: corrupted)
       }
     } catch {
       status = "Apply failed: \(error.localizedDescription)"
-      applyResult = .failure(message: error.localizedDescription, partial: [])
+      applyResult = .failure(message: error.localizedDescription, partial: [], corrupted: [])
+    }
+  }
+
+  /// Recovery action for the apply-failure modal: restore latest valid backup
+  /// to the given target's settings.json. Returns true on success.
+  @discardableResult
+  func restoreLatestValidBackup(for info: CorruptedTargetInfo) -> Bool {
+    guard let backup = info.latestValidBackup else { return false }
+    let url = URL(fileURLWithPath: info.settingsPath)
+    do {
+      try restoreBackup(backup, to: url)
+      return true
+    } catch {
+      status = "Restore failed: \(error.localizedDescription)"
+      return false
     }
   }
 }
@@ -1380,11 +1603,21 @@ final class ThemeModel: ObservableObject {
 
 @main
 struct CursorThemeCustomizerApp: App {
+  init() {
+    // Speed up macOS tooltips. The default initial-show delay is ~1s which feels
+    // sluggish for a dense toolbar. NSToolTipManager exposes this via KVC.
+    if let cls = NSClassFromString("NSToolTipManager") as? NSObject.Type,
+       let manager = cls.value(forKey: "sharedToolTipManager") as? NSObject {
+      manager.setValue(0.15, forKey: "initialToolTipDelay")
+    }
+  }
+
   var body: some Scene {
     WindowGroup {
       ContentView()
         .navigationTitle("")
     }
     .windowStyle(.hiddenTitleBar)
+    .windowToolbarStyle(.unified(showsTitle: false))
   }
 }
