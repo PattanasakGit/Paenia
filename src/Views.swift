@@ -306,29 +306,41 @@ struct TargetMenu: View {
   @ObservedObject var model: ThemeModel
   @Environment(\.themeChrome) private var theme
 
+  /// Detected = available targets (ready / willCreate / installedOnly).
+  /// We split detected from the rest so the menu reads cleanly: actionable
+  /// items at the top, an "Unavailable" footer group for transparency.
+  private var detectedTargets: [EditorTarget] { model.allTargets.filter { $0.isDetected } }
+  private var unavailableTargets: [EditorTarget] { model.allTargets.filter { !$0.isDetected } }
+
   var body: some View {
     Menu {
       Section("Edit From") {
-        ForEach(model.allTargets) { target in
+        ForEach(detectedTargets) { target in
           Button {
             model.setActiveTarget(target)
           } label: {
-            HStack {
-              if target.id == model.activeTargetID {
-                Image(systemName: "checkmark")
-              }
-              Text(target.name)
-              if target.isDetected { Text("· detected").foregroundStyle(.secondary) }
-            }
+            Label(target.name,
+                  systemImage: target.id == model.activeTargetID ? "checkmark" : "")
           }
         }
       }
       Section("Apply To") {
-        ForEach(model.allTargets) { target in
+        ForEach(detectedTargets) { target in
           Toggle(target.name, isOn: Binding(
             get: { model.targetApplyStates[target.id] ?? false },
             set: { model.targetApplyStates[target.id] = $0 }
           ))
+        }
+      }
+      // Show unavailable editors as disabled rows so the user can see why
+      // an editor they expected isn't in the lists above. Selecting these
+      // would be no-ops; native macOS dims disabled menu items automatically.
+      if !unavailableTargets.isEmpty {
+        Section("ไม่พร้อม (ติดตั้ง editor หรือเปิดอย่างน้อย 1 ครั้งก่อน)") {
+          ForEach(unavailableTargets) { target in
+            Button {} label: { Text(target.name) }
+              .disabled(true)
+          }
         }
       }
     } label: {
@@ -2520,10 +2532,25 @@ struct TargetRow: View {
     var id: String { self == .warning ? "w" : "b" }
   }
 
+  /// A target is selectable only if the editor is at least detected on this
+  /// machine (.ready / .willCreate / .installedOnly). When not found we hard-
+  /// block toggling so the user can't accidentally queue an Apply against
+  /// a path that doesn't exist.
+  private var canSelect: Bool { target.isDetected }
+
   var body: some View {
     Toggle(isOn: Binding(
-      get: { model.targetApplyStates[target.id] ?? false },
-      set: { model.targetApplyStates[target.id] = $0 }
+      get: {
+        // If a previously-selected target became unavailable (e.g. user
+        // uninstalled the editor) reflect it as off here too, so the
+        // checkbox visually agrees with `canSelect`.
+        guard canSelect else { return false }
+        return model.targetApplyStates[target.id] ?? false
+      },
+      set: { newValue in
+        guard canSelect else { return }
+        model.targetApplyStates[target.id] = newValue
+      }
     )) {
       HStack(spacing: 10) {
         VStack(alignment: .leading, spacing: 2) {
@@ -2553,9 +2580,12 @@ struct TargetRow: View {
         statusIndicator(target.detectionStatus)
         actionMenu
       }
-      .help(target.settingsURL.path)
+      .help(canSelect ? target.settingsURL.path
+                      : "ไม่พบ editor นี้บนเครื่อง — ติดตั้ง editor หรือเปิดอย่างน้อย 1 ครั้งเพื่อให้สร้าง User folder")
+      .opacity(canSelect ? 1.0 : 0.55)
     }
     .toggleStyle(.checkbox)
+    .disabled(!canSelect)
     .padding(.vertical, 4)
     .alert(item: $alertKind) { kind in
       switch kind {

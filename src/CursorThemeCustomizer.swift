@@ -1312,15 +1312,39 @@ final class ThemeModel: ObservableObject {
     allTargets.first { $0.id == activeTargetID } ?? allTargets[0]
   }
 
+  /// Only targets that are detected on this machine are eligible for Apply.
+  /// Filtering here means a previously-selected target that the user later
+  /// uninstalled won't sneak into a write attempt.
   var applyTargets: [EditorTarget] {
-    let selected = allTargets.filter { targetApplyStates[$0.id] == true }
-    return selected.isEmpty ? [activeTarget] : selected
+    let selected = allTargets.filter {
+      $0.isDetected && targetApplyStates[$0.id] == true
+    }
+    if !selected.isEmpty { return selected }
+    return activeTarget.isDetected ? [activeTarget] : []
   }
 
   func setActiveTarget(_ target: EditorTarget) {
     activeTargetID = target.id
     targetApplyStates[target.id] = true
     reload()
+    // After reload, `detailColors` holds palette-derived values from theme.json.
+    // Overlay the new target's actual on-disk workbench colors on top so the
+    // LIVE PREVIEW reflects what THAT editor currently looks like — not the
+    // last theme we wrote. Subsequent palette edits will overwrite these via
+    // `rebuildDetailColorsFromPalette`, so live editing still works.
+    syncDetailColorsFromActiveTargetDisk()
+  }
+
+  /// Read the active target's settings.json and overlay its workbench colors
+  /// onto `detailColors`. Used after switching IDE so the preview tracks the
+  /// IDE's actual current theme instead of theme.json's last-applied state.
+  func syncDetailColorsFromActiveTargetDisk() {
+    loadTargetWorkbenchColors()
+    var merged = detailColors
+    for (key, value) in targetWorkbenchColors {
+      merged[key] = value.uppercased()
+    }
+    detailColors = merged
   }
 
   // MARK: - Custom Target Management
