@@ -106,15 +106,8 @@ struct ContentView: View {
       .keyboardShortcut("r", modifiers: .command)
       .help("รีโหลด — โหลดทุกอย่างใหม่จากดิสก์ (⌘R)")
 
-      Button {
-        model.showInspector.toggle()
-      } label: {
-        toolbarIcon(model.showInspector ? "sidebar.right" : "rectangle.righthalf.inset.filled")
-      }
-      .buttonStyle(.bordered)
-      .controlSize(.large)
-      .keyboardShortcut("i", modifiers: [.command, .option])
-      .help("พรีวิว — ซ่อน/แสดงแถบ Inspector ด้านขวา (preview + รายละเอียดสีที่เลือก) (⌥⌘I)")
+      // Inspector sidebar is permanently visible — toggle removed by design
+      // so the live preview is always at hand while users edit colors.
 
       Button {
         model.showPreferences = true
@@ -1013,17 +1006,16 @@ struct DetailContainer: View {
       DetailHeader(model: model)
       Divider().opacity(0.4)
 
+      // Inspector is permanently visible — the toolbar toggle was removed
+      // so users always have the live preview + palette + reset cluster
+      // alongside the color list.
       HStack(spacing: 0) {
         ColorListView(model: model)
           .frame(maxWidth: .infinity, maxHeight: .infinity)
-        if model.showInspector {
-          Divider().opacity(0.4)
-          InspectorView(model: model)
-            .frame(width: 380)
-            .transition(.move(edge: .trailing).combined(with: .opacity))
-        }
+        Divider().opacity(0.4)
+        InspectorView(model: model)
+          .frame(width: 380)
       }
-      .animation(.easeInOut(duration: 0.18), value: model.showInspector)
 
       Divider().opacity(0.4)
       StatusBar(model: model)
@@ -2485,17 +2477,23 @@ struct AppMark: View {
   }()
 
   var body: some View {
-    Group {
-      if let img = AppMark.bundledIcon {
-        Image(nsImage: img)
-          .resizable()
-          .interpolation(.high)
-          .aspectRatio(contentMode: .fit)
-          .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+    GeometryReader { geo in
+      let side = min(geo.size.width, geo.size.height)
+      // ~22% radius matches the Apple "squircle" ratio used by macOS app
+      // icons. Larger curve hides the black corners of the source PNG so
+      // the in-app brand mark looks like a proper rounded icon at any size.
+      let radius = side * 0.22
+      Group {
+        if let img = AppMark.bundledIcon {
+          Image(nsImage: img)
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
       } else {
         // Fallback if AppIcon is missing — keep the legacy gradient + symbol.
         ZStack {
-          RoundedRectangle(cornerRadius: 9, style: .continuous)
+          RoundedRectangle(cornerRadius: radius, style: .continuous)
             .fill(
               LinearGradient(
                 colors: [
@@ -2508,10 +2506,12 @@ struct AppMark: View {
               )
             )
           Image(systemName: "paintpalette.fill")
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(size: side * 0.42, weight: .semibold))
             .foregroundStyle(.white.opacity(0.95))
         }
       }
+      }
+      .frame(width: side, height: side)
     }
   }
 }
