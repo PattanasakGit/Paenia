@@ -35,6 +35,12 @@ struct ContentView: View {
     .sheet(isPresented: $model.pendingResetAllConfirmation) {
       ConfirmResetSheet(model: model, scope: .all)
     }
+    .sheet(item: $model.pendingOriginalRestore) { info in
+      ConfirmRestoreOriginalSheet(model: model, info: info)
+    }
+    .sheet(item: $model.originalRestoreResult) { outcome in
+      OriginalRestoreResultSheet(model: model, outcome: outcome)
+    }
     .sheet(item: $model.applyResult) { outcome in
       ApplyResultSheet(model: model, outcome: outcome)
     }
@@ -2101,11 +2107,66 @@ struct PreferencesSheet: View {
 
   private var backupsPane: some View {
     VStack(alignment: .leading, spacing: 16) {
-      Text("Backup เก็บใน Backups/ ของแอป (แยกจาก folder ของ editor)")
+      // Protected snapshots taken the very first time the app saw each
+      // editor's settings.json. Cannot be deleted from the UI — always
+      // available as a "factory reset" rollback.
+      SettingsGroup(
+        title: "Original Snapshots",
+        footer: "Snapshot อัตโนมัติจากครั้งแรกที่ App เห็นไฟล์ settings.json — กู้คืนกลับสภาพก่อนใช้ App ได้ตลอด · ลบจากแอปไม่ได้ เพื่อความปลอดภัย"
+      ) {
+        let originals = model.allOriginalBackups
+        if originals.isEmpty {
+          Text("ยังไม่มี snapshot — เปิด editor ที่ต้องการให้สร้าง settings.json ก่อน")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 14).padding(.vertical, 12)
+        } else {
+          ForEach(Array(originals.enumerated()), id: \.element.id) { idx, info in
+            if idx > 0 { SettingsDivider() }
+            originalRow(info)
+          }
+        }
+      }
+
+      // Regular timestamped backups taken before each Apply
+      Text("Backup ทั่วไปเก็บใน Backups/ ของแอป (แยกจาก folder ของ editor)")
         .font(.caption)
         .foregroundStyle(.secondary)
+        .padding(.top, 4)
       BackupSection(model: model)
     }
+  }
+
+  private func originalRow(_ info: ThemeModel.OriginalBackupInfo) -> some View {
+    HStack(spacing: 12) {
+      IconTile(symbol: "lock.shield.fill", tint: theme.warning, size: 26)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(info.targetName)
+          .font(.callout.weight(.semibold))
+        Text("Captured \(info.displayDate) · \(info.size) bytes")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+      }
+      Spacer()
+      Button {
+        model.pendingOriginalRestore = info
+      } label: {
+        HStack(spacing: 5) {
+          Image(systemName: "arrow.uturn.backward.circle.fill")
+            .font(.system(size: 11))
+          Text("Restore Original")
+            .font(.system(.caption, design: .rounded).weight(.semibold))
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .foregroundStyle(theme.warning)
+        .background(theme.warning.opacity(0.10), in: Capsule())
+        .overlay(Capsule().stroke(theme.warning.opacity(0.30)))
+      }
+      .buttonStyle(.plain)
+      .help("เขียน snapshot นี้ทับ settings.json ปัจจุบัน — สถานะจะกลับไปก่อนใช้ App")
+    }
+    .padding(.horizontal, 14).padding(.vertical, 10)
+    .frame(minHeight: 48)
   }
 
   private var storagePane: some View {
@@ -2842,6 +2903,64 @@ struct ConfirmReloadSheet: View {
         model.reloadFromUI()
       })
     )
+  }
+}
+
+// MARK: - Confirm Restore Original Sheet
+//
+// Destructive: writes the protected pre-app snapshot over the editor's
+// current settings.json. The current state is auto-snapshotted into the
+// regular Backup folder first as a safety net.
+
+struct ConfirmRestoreOriginalSheet: View {
+  @ObservedObject var model: ThemeModel
+  let info: ThemeModel.OriginalBackupInfo
+  @Environment(\.themeChrome) private var theme
+
+  var body: some View {
+    AlertCard(
+      symbol: "arrow.uturn.backward.circle.fill",
+      tone: theme.warning,
+      title: "คืนค่า \(info.targetName)",
+      message: "เขียน snapshot ของวันที่ \(info.displayDate) ทับ settings.json — ค่าธีมและสีที่ Apply ทั้งหมดจะหายไป (state ปัจจุบันถูก backup ก่อนเขียนทับ)",
+      cancel: ("ยกเลิก", { model.pendingOriginalRestore = nil }),
+      confirm: ("คืนค่า", {
+        let toRestore = info
+        model.pendingOriginalRestore = nil
+        model.restoreOriginalFromUI(toRestore)
+      })
+    )
+  }
+}
+
+// MARK: - Original Restore Result Sheet
+
+struct OriginalRestoreResultSheet: View {
+  @ObservedObject var model: ThemeModel
+  let outcome: ThemeModel.OriginalRestoreOutcome
+  @Environment(\.themeChrome) private var theme
+
+  var body: some View {
+    switch outcome {
+    case .success(let target, let date):
+      ResultCard(
+        symbol: "checkmark.circle.fill",
+        tone: theme.success,
+        title: "คืนค่าเรียบร้อย",
+        message: "\(target) กลับสู่สภาพ \(date) — เปิด editor ใหม่เพื่อโหลดสีเดิม",
+        primary: ("เสร็จสิ้น", { model.originalRestoreResult = nil }),
+        secondary: nil
+      )
+    case .failure(let target, let message):
+      ResultCard(
+        symbol: "xmark.circle.fill",
+        tone: theme.danger,
+        title: "คืนค่า \(target) ไม่สำเร็จ",
+        message: message,
+        primary: ("ปิด", { model.originalRestoreResult = nil }),
+        secondary: nil
+      )
+    }
   }
 }
 

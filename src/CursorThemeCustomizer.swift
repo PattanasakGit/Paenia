@@ -7,6 +7,21 @@ let studioDir = appSupportRoot.appendingPathComponent("Workbench Theme Studio")
 let themeURL = studioDir.appendingPathComponent("theme.json")
 let backupsRoot = studioDir.appendingPathComponent("Backups")
 
+/// Protected "factory" snapshot — settings.json captured the FIRST time the
+/// app sees a target's file. Lets the user always roll back to a pristine
+/// pre-app state regardless of how many times they've Applied themes.
+/// Files here are intentionally not exposed to the regular Backup Management
+/// delete UI; users must remove them manually if they truly want to.
+let originalBackupsRoot = studioDir.appendingPathComponent("OriginalBackups")
+
+/// Path where the original snapshot for a given source settings.json lives.
+/// Mirrors the regular `backupsDirectory(for:)` encoding for parity.
+func originalBackupURL(for sourceURL: URL) -> URL {
+  originalBackupsRoot
+    .appendingPathComponent(backupFolderName(for: sourceURL))
+    .appendingPathComponent(sourceURL.lastPathComponent)
+}
+
 /// Static, read-once metadata about the current app bundle. Used by the
 /// About pane in Preferences and any place we want to surface version /
 /// system info to the user. All values come from the bundle's Info.plist
@@ -1132,12 +1147,25 @@ final class ThemeModel: ObservableObject {
   @Published var pendingReloadConfirmation: Bool = false
   @Published var pendingResetGroupConfirmation: Bool = false
   @Published var pendingResetAllConfirmation: Bool = false
+  @Published var pendingOriginalRestore: OriginalBackupInfo? = nil
 
   // Result modals so the user always gets explicit success/fail feedback,
   // not just a status-bar update.
   @Published var backupResult: BackupOutcome? = nil
   @Published var reloadResult: ReloadOutcome? = nil
   @Published var resetResult: ResetOutcome? = nil
+  @Published var originalRestoreResult: OriginalRestoreOutcome? = nil
+
+  enum OriginalRestoreOutcome: Identifiable {
+    case success(target: String, date: String)
+    case failure(target: String, message: String)
+    var id: String {
+      switch self {
+      case .success(let t, _): return "ok-orig-\(t)"
+      case .failure(let t, let m): return "fail-orig-\(t)-\(m)"
+      }
+    }
+  }
 
   enum ResetOutcome: Identifiable {
     case success(cleared: Int, scope: String)
@@ -1263,6 +1291,7 @@ final class ThemeModel: ObservableObject {
   init() {
     ensureThemeFile()
     reload()
+    captureOriginalsIfNeeded()
   }
 
   private func ensureThemeFile() {
@@ -1486,6 +1515,133 @@ final class ThemeModel: ObservableObject {
       if SettingsPatcher.hasBalancedBrackets(s) { return b }
     }
     return nil
+  }
+
+  // MARK: - Original ("factory") backups
+  //
+  // The first time the app sees a target's settings.json on disk, it copies
+  // that file into `OriginalBackups/<encoded-path>/settings.json` and never
+  // touches it again. Users can restore back to this snapshot anytime —
+  // useful when they've Applied many themes and want to wipe the slate
+  // back to the editor's pre-app state. These files are intentionally NOT
+  // exposed to the regular delete UI; they're our last-line safety net.
+
+  struct OriginalBackupInfo: Identifiable, Hashable {
+    let targetID: String
+    let targetName: String
+    let snapshotURL: URL       // the protected snapshot file
+    let originalPath: String   // path of the editor's settings.json
+    let date: Date
+    let size: Int
+
+    var id: String { targetID }
+    var displayDate: String {
+      let f = DateFormatter()
+      f.dateStyle = .medium
+      f.timeStyle = .short
+      return f.string(from: date)
+    }
+  }
+
+  /// Returns the original snapshot for the given source path if one exists.
+  func originalBackup(forSettingsAt url: URL, target: EditorTarget) -> OriginalBackupInfo? {
+    let snapshot = originalBackupURL(for: url)
+    guard FileManager.default.fileExists(atPath: snapshot.path),
+          let attrs = try? snapshot.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+    else { return nil }
+    return OriginalBackupInfo(
+      targetID: target.id,
+      targetName: target.name,
+      snapshotURL: snapshot,
+      originalPath: url.path,
+      date: attrs.contentModificationDate ?? Date(timeIntervalSince1970: 0),
+      size: attrs.fileSize ?? 0
+    )
+  }
+
+  /// Capture an original snapshot for a target IF the source file exists and
+  /// no snapshot exists yet. Idempotent — safe to call repeatedly.
+  /// Returns the resulting info, or nil if there was nothing to capture.
+  @discardableResult
+  func ensureOriginalBackup(forSettingsAt url: URL, target: EditorTarget) -> OriginalBackupInfo? {
+    let fm = FileManager.default
+    let snapshot = originalBackupURL(for: url)
+    if fm.fileExists(atPath: snapshot.path) {
+      return originalBackup(forSettingsAt: url, target: target)
+    }
+    guard fm.fileExists(atPath: url.path) else { return nil }
+    do {
+      try fm.createDirectory(at: snapshot.deletingLastPathComponent(),
+                             withIntermediateDirectories: true)
+      try fm.copyItem(at: url, to: snapshot)
+      // Mark read-only at filesystem level too — extra safety so a drag-to-trash
+      // from Finder doesn't silently destroy the snapshot. User can still rm
+      // manually from Terminal.
+      try? fm.setAttributes([.immutable: true], ofItemAtPath: snapshot.path)
+      return originalBackup(forSettingsAt: url, target: target)
+    } catch {
+      return nil
+    }
+  }
+
+  /// Sweep every known target and capture originals for any that lack one.
+  /// Called from `init()` and after `reload()` so newly-detected editors
+  /// (e.g. user added a custom path mid-session) also get protected.
+  func captureOriginalsIfNeeded() {
+    for target in allTargets {
+      _ = ensureOriginalBackup(forSettingsAt: target.settingsURL, target: target)
+    }
+    // Also snapshot the app's own theme.json the very first time, so users
+    // can roll back the theme document itself if they trash their palette.
+    let themeFakeTarget = EditorTarget(
+      id: "__theme__",
+      name: "theme.json (app)",
+      appSupportName: "",
+      bundleID: nil,
+      supportLevel: "Internal"
+    )
+    _ = ensureOriginalBackup(forSettingsAt: themeURL, target: themeFakeTarget)
+  }
+
+  /// All originals we know about — one per target that has a snapshot file.
+  var allOriginalBackups: [OriginalBackupInfo] {
+    allTargets.compactMap { target in
+      originalBackup(forSettingsAt: target.settingsURL, target: target)
+    }
+  }
+
+  /// Used by the confirm modal — runs `restoreOriginal` and surfaces a
+  /// success/failure modal so the user always gets explicit feedback.
+  func restoreOriginalFromUI(_ info: OriginalBackupInfo) {
+    do {
+      try restoreOriginal(info)
+      originalRestoreResult = .success(target: info.targetName, date: info.displayDate)
+    } catch {
+      originalRestoreResult = .failure(target: info.targetName, message: error.localizedDescription)
+    }
+  }
+
+  /// Restore the editor's settings.json from its protected original.
+  /// Before overwriting, we snapshot the CURRENT state into the regular
+  /// backup folder so the user can undo the original-restore if needed.
+  func restoreOriginal(_ info: OriginalBackupInfo) throws {
+    let fm = FileManager.default
+    let dest = URL(fileURLWithPath: info.originalPath)
+    // Pre-snapshot current state into regular backups (best-effort)
+    if fm.fileExists(atPath: dest.path) {
+      _ = try? makeBackup(of: dest)
+      pruneBackups(forSettingsAt: dest, keep: ThemeModel.backupRetentionLimit)
+    }
+    // Read the protected original via its own URL
+    let data = try Data(contentsOf: info.snapshotURL)
+    try fm.createDirectory(at: dest.deletingLastPathComponent(),
+                           withIntermediateDirectories: true)
+    try data.write(to: dest, options: .atomic)
+    // Re-sync in-memory state to whatever was just restored on the active target
+    if dest.path == activeTarget.settingsURL.path {
+      syncStateFromRestoredSettings()
+    }
+    status = "Restored \(info.targetName) to its original (\(info.displayDate))"
   }
 
   /// Restore a backup by overwriting the target's settings.json.
