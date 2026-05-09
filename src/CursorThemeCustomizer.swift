@@ -242,6 +242,106 @@ let baseCategories: [ColorCategory] = [
 ]
 
 let presets: [ThemePreset] = [
+  // ── Minimal Showcase · Earth Tone ────────────────────────────
+  // Curated palettes built around earth-tone surfaces (umber, sienna,
+  // ochre, sage, clay, parchment). Each preset is hand-tuned across all
+  // 5 surface levels + foreground ramp + accents so contrast feels even
+  // and syntax colors melt into the surface instead of fighting it.
+  //
+  // Design guardrails for every Minimal preset:
+  //   • bg0 → bg4 ramp uses a single warm hue family, no cool gray jumps
+  //   • fg0 ≠ pure white / pure black — soft to reduce eye strain
+  //   • accent saturated only just enough to read at body-text size
+  //   • syntax (blue/green/red/purple) shifted to muted earth siblings
+
+  // ── Earth · Dark ────
+  ThemePreset(id: "Sumi Ink", colors: [
+    "bg0": "#13110F", "bg1": "#0E0C0B", "bg2": "#1B1815", "bg3": "#26221E", "bg4": "#332E27",
+    "fg0": "#ECE3D2", "fg1": "#B5A993", "fg2": "#8C8273", "muted": "#6A6256", "muted2": "#463F36",
+    "border": "#2A2520", "accent": "#C9A76E", "accentSoft": "#DEC498", "blue": "#7390A8",
+    "green": "#8AA677", "red": "#BB6F62", "purple": "#9C7C9B"
+  ]),
+  ThemePreset(id: "Terracotta", colors: [
+    "bg0": "#1A1311", "bg1": "#150F0D", "bg2": "#221915", "bg3": "#2E231D", "bg4": "#3D2F26",
+    "fg0": "#F0E2D2", "fg1": "#BFAA94", "fg2": "#968372", "muted": "#6F5F52", "muted2": "#4A3F35",
+    "border": "#2C2018", "accent": "#C26B4A", "accentSoft": "#DA9272", "blue": "#6F8AA0",
+    "green": "#8FA67A", "red": "#C26B4A", "purple": "#9F778F"
+  ]),
+  ThemePreset(id: "Moss Stone", colors: [
+    "bg0": "#141815", "bg1": "#0F1310", "bg2": "#1C211D", "bg3": "#272E27", "bg4": "#353D34",
+    "fg0": "#E2E7DD", "fg1": "#B0B6AA", "fg2": "#868D7F", "muted": "#61685B", "muted2": "#404640",
+    "border": "#232924", "accent": "#8FAA80", "accentSoft": "#B5C9A8", "blue": "#7993A5",
+    "green": "#8FAA80", "red": "#BD7B72", "purple": "#9989A7"
+  ]),
+  ThemePreset(id: "Cedar", colors: [
+    "bg0": "#1A1612", "bg1": "#14110E", "bg2": "#221C16", "bg3": "#2E261E", "bg4": "#3D3327",
+    "fg0": "#EDE0CE", "fg1": "#B9A78D", "fg2": "#8E7E68", "muted": "#685A48", "muted2": "#443A2D",
+    "border": "#2A2218", "accent": "#B07952", "accentSoft": "#CB9A77", "blue": "#6F8AA0",
+    "green": "#8B9F76", "red": "#B26F58", "purple": "#94768F"
+  ]),
+  ThemePreset(id: "Dune", colors: [
+    "bg0": "#1B1813", "bg1": "#15130F", "bg2": "#221F18", "bg3": "#2E2A21", "bg4": "#3D372B",
+    "fg0": "#EFE5D0", "fg1": "#BCAE91", "fg2": "#908370", "muted": "#6A5F50", "muted2": "#463E33",
+    "border": "#2B251C", "accent": "#C8A368", "accentSoft": "#DBC18C", "blue": "#738BA0",
+    "green": "#8DA478", "red": "#BB7259", "purple": "#97798E"
+  ]),
+  ThemePreset(id: "Espresso", colors: [
+    "bg0": "#16100B", "bg1": "#110C08", "bg2": "#1F1610", "bg3": "#2A1E16", "bg4": "#38291D",
+    "fg0": "#EBDEC8", "fg1": "#B9A689", "fg2": "#8E7E66", "muted": "#695A47", "muted2": "#443A2C",
+    "border": "#28201A", "accent": "#D9BB91", "accentSoft": "#E7D2AE", "blue": "#6E879D",
+    "green": "#8C9F76", "red": "#B07058", "purple": "#93768D"
+  ]),
+  ThemePreset(id: "Rust Iron", colors: [
+    "bg0": "#15110D", "bg1": "#110D0A", "bg2": "#1F1814", "bg3": "#2A2018", "bg4": "#382B1F",
+    "fg0": "#ECDFCA", "fg1": "#B9A88B", "fg2": "#8E7F69", "muted": "#685B49", "muted2": "#443A2D",
+    "border": "#281F18", "accent": "#B65A2C", "accentSoft": "#D38157", "blue": "#6F889E",
+    "green": "#8B9F76", "red": "#B65A2C", "purple": "#94768F"
+  ]),
+  ThemePreset(id: "Olive Grove", colors: [
+    "bg0": "#16170F", "bg1": "#11120B", "bg2": "#1F2118", "bg3": "#2A2D21", "bg4": "#383C2C",
+    "fg0": "#ECE7CD", "fg1": "#B9B391", "fg2": "#8E8A6B", "muted": "#67654E", "muted2": "#454432",
+    "border": "#28291D", "accent": "#A0A05A", "accentSoft": "#C4C383", "blue": "#788C9D",
+    "green": "#A0A05A", "red": "#B36F4E", "purple": "#95778A"
+  ]),
+
+  // ── Earth · Light ────
+  ThemePreset(id: "Linen", colors: [
+    "bg0": "#F2EBE0", "bg1": "#F8F2E7", "bg2": "#EAE2D3", "bg3": "#DCD2BE", "bg4": "#C4B89E",
+    "fg0": "#2A2218", "fg1": "#574B3A", "fg2": "#847762", "muted": "#ABA08A", "muted2": "#C8BFA9",
+    "border": "#DAD1BD", "accent": "#8B7355", "accentSoft": "#B0987C", "blue": "#5E7A93",
+    "green": "#6F8B5D", "red": "#A1554B", "purple": "#826F89"
+  ]),
+  ThemePreset(id: "Parchment", colors: [
+    "bg0": "#F5EDD8", "bg1": "#FAF4E2", "bg2": "#ECE3CB", "bg3": "#DED3B7", "bg4": "#C8BC9C",
+    "fg0": "#2D2415", "fg1": "#5A4D33", "fg2": "#87775B", "muted": "#A89A7E", "muted2": "#C8BCA1",
+    "border": "#DCD0B5", "accent": "#6B4F2C", "accentSoft": "#957654", "blue": "#5E748A",
+    "green": "#6E8757", "red": "#9B5141", "purple": "#815F7A"
+  ]),
+  ThemePreset(id: "Sage Garden", colors: [
+    "bg0": "#ECF1E8", "bg1": "#F4F8F0", "bg2": "#E3EADD", "bg3": "#D2DBCA", "bg4": "#B6C4AB",
+    "fg0": "#1F2A1B", "fg1": "#4A5942", "fg2": "#768470", "muted": "#9CAA94", "muted2": "#BFC9B8",
+    "border": "#D1DACA", "accent": "#5B7B5A", "accentSoft": "#82A381", "blue": "#5E7A93",
+    "green": "#5B7B5A", "red": "#9F574A", "purple": "#7B6E8A"
+  ]),
+  ThemePreset(id: "Adobe", colors: [
+    "bg0": "#F5E8DC", "bg1": "#FAEFE2", "bg2": "#EDDFCF", "bg3": "#DECDB8", "bg4": "#C4B193",
+    "fg0": "#2D1F12", "fg1": "#5A452F", "fg2": "#87694B", "muted": "#A8896B", "muted2": "#C7AC8E",
+    "border": "#DDC9AF", "accent": "#B45838", "accentSoft": "#D38461", "blue": "#5E7A93",
+    "green": "#6E8757", "red": "#B45838", "purple": "#845F7A"
+  ]),
+  ThemePreset(id: "Stone", colors: [
+    "bg0": "#EFE9E0", "bg1": "#F5EFE6", "bg2": "#E5DED2", "bg3": "#D3CCBE", "bg4": "#B9B19F",
+    "fg0": "#2A241C", "fg1": "#564E40", "fg2": "#837866", "muted": "#A6997F", "muted2": "#C4B89C",
+    "border": "#D6CDBC", "accent": "#5A4938", "accentSoft": "#836C53", "blue": "#5E748A",
+    "green": "#6E8757", "red": "#9F5141", "purple": "#7B5F6E"
+  ]),
+  ThemePreset(id: "Wheat", colors: [
+    "bg0": "#F4ECD8", "bg1": "#FAF3E1", "bg2": "#EAE0C7", "bg3": "#DACFB1", "bg4": "#BFB28C",
+    "fg0": "#2C2415", "fg1": "#574A2E", "fg2": "#847555", "muted": "#A89776", "muted2": "#C5B697",
+    "border": "#D9CDAD", "accent": "#9C6E32", "accentSoft": "#C29355", "blue": "#5E748A",
+    "green": "#7A8949", "red": "#9C5238", "purple": "#7E5E73"
+  ]),
+
   // ── Signature ────────────────────────────────────────────────
   ThemePreset(id: "Cyber Violet", colors: [
     "bg0": "#08060F", "bg1": "#100B1F", "bg2": "#17102A", "bg3": "#241642", "bg4": "#34205F",
@@ -477,6 +577,62 @@ let presets: [ThemePreset] = [
     "border": "#8839EF", "accent": "#EA76CB", "accentSoft": "#E5A1D5", "blue": "#1E66F5",
     "green": "#40A02B", "red": "#D20F39", "purple": "#8839EF"
   ]),
+  // ── Curated Light themes ─────────────────────────────────────
+  ThemePreset(id: "Paper", colors: [
+    "bg0": "#F7F2E8", "bg1": "#FFFAEF", "bg2": "#EFEADC", "bg3": "#E6E0CF", "bg4": "#D6CFBC",
+    "fg0": "#2C2A24", "fg1": "#5A574E", "fg2": "#847F73", "muted": "#ABA597", "muted2": "#C9C4B5",
+    "border": "#DBD5C5", "accent": "#A8541F", "accentSoft": "#D49264", "blue": "#3D6FA8",
+    "green": "#4F9656", "red": "#B23942", "purple": "#8E58A0"
+  ]),
+  ThemePreset(id: "Mist", colors: [
+    "bg0": "#F4F8FB", "bg1": "#FFFFFF", "bg2": "#EDF2F7", "bg3": "#E2E9F0", "bg4": "#CFDBE7",
+    "fg0": "#1A2230", "fg1": "#4A5568", "fg2": "#718096", "muted": "#A0AEC0", "muted2": "#CBD5E0",
+    "border": "#E2E9F0", "accent": "#4F86C6", "accentSoft": "#82AFD8", "blue": "#4F86C6",
+    "green": "#58A65A", "red": "#E55353", "purple": "#8B6FB2"
+  ]),
+  ThemePreset(id: "Sakura Light", colors: [
+    "bg0": "#FFF7F8", "bg1": "#FFFFFF", "bg2": "#FFEAEF", "bg3": "#FFD9E2", "bg4": "#F5B8CA",
+    "fg0": "#4A2935", "fg1": "#6F4452", "fg2": "#936374", "muted": "#B68B9A", "muted2": "#D4B3BE",
+    "border": "#F2D6DD", "accent": "#D6336C", "accentSoft": "#F58FA8", "blue": "#6385C4",
+    "green": "#5D9B5D", "red": "#C92A4A", "purple": "#A2569E"
+  ]),
+  ThemePreset(id: "Mint Cloud", colors: [
+    "bg0": "#F4FBF6", "bg1": "#FFFFFF", "bg2": "#E9F5ED", "bg3": "#DBEDDF", "bg4": "#C0DDC8",
+    "fg0": "#1F3329", "fg1": "#4A5F50", "fg2": "#768B7B", "muted": "#A2B5A6", "muted2": "#C9D4CB",
+    "border": "#E0EBE2", "accent": "#2F855A", "accentSoft": "#6EAA89", "blue": "#4287B0",
+    "green": "#339966", "red": "#C04A52", "purple": "#8C5CB4"
+  ]),
+  ThemePreset(id: "Lavender Light", colors: [
+    "bg0": "#FAF7FF", "bg1": "#FFFFFF", "bg2": "#F1ECFB", "bg3": "#E5DCF5", "bg4": "#D2C3EC",
+    "fg0": "#2C2640", "fg1": "#54486B", "fg2": "#7E7196", "muted": "#A99CC0", "muted2": "#CABFE0",
+    "border": "#E8DFF5", "accent": "#7C3AED", "accentSoft": "#A78BFA", "blue": "#5B7AD9",
+    "green": "#5BA86C", "red": "#D14552", "purple": "#7C3AED"
+  ]),
+  ThemePreset(id: "Peach Cream", colors: [
+    "bg0": "#FFF6EE", "bg1": "#FFFAF3", "bg2": "#FFE9D5", "bg3": "#FBDBBC", "bg4": "#F2C19A",
+    "fg0": "#3A2516", "fg1": "#614433", "fg2": "#896651", "muted": "#B08A72", "muted2": "#CFAE94",
+    "border": "#F5DEC4", "accent": "#D9633F", "accentSoft": "#F39575", "blue": "#5786B4",
+    "green": "#629851", "red": "#C04338", "purple": "#9F5C9C"
+  ]),
+  ThemePreset(id: "Pearl", colors: [
+    "bg0": "#FCFBF9", "bg1": "#FFFFFF", "bg2": "#F4F1ED", "bg3": "#E9E5DE", "bg4": "#D4CFC4",
+    "fg0": "#1F1E1A", "fg1": "#4A4945", "fg2": "#7A7872", "muted": "#A6A49C", "muted2": "#C6C2B8",
+    "border": "#E5E0D6", "accent": "#3F3F46", "accentSoft": "#71717A", "blue": "#2563EB",
+    "green": "#16A34A", "red": "#DC2626", "purple": "#9333EA"
+  ]),
+  ThemePreset(id: "Rose Quartz", colors: [
+    "bg0": "#FBF5F4", "bg1": "#FFFFFF", "bg2": "#F4EAE8", "bg3": "#EBDAD5", "bg4": "#D9BBB3",
+    "fg0": "#3A2326", "fg1": "#604448", "fg2": "#876870", "muted": "#B08F95", "muted2": "#CCB1B5",
+    "border": "#EFDDD9", "accent": "#B5475A", "accentSoft": "#D67D8C", "blue": "#5783B0",
+    "green": "#658D55", "red": "#A93C45", "purple": "#8E5790"
+  ]),
+  ThemePreset(id: "Sky Light", colors: [
+    "bg0": "#F0F9FF", "bg1": "#FFFFFF", "bg2": "#E0F2FE", "bg3": "#BAE6FD", "bg4": "#7DD3FC",
+    "fg0": "#0C2E48", "fg1": "#1E4A6E", "fg2": "#3D6896", "muted": "#7390B5", "muted2": "#A6BCD4",
+    "border": "#CFE7F7", "accent": "#0284C7", "accentSoft": "#38BDF8", "blue": "#0284C7",
+    "green": "#16A34A", "red": "#DC2626", "purple": "#7C3AED"
+  ]),
+
   ThemePreset(id: "Ayu Light", colors: [
     "bg0": "#FAFAFA", "bg1": "#F0F0F0", "bg2": "#E8E8E8", "bg3": "#D9D7CE", "bg4": "#BFBDB6",
     "fg0": "#5C6166", "fg1": "#787B80", "fg2": "#959DA6", "muted": "#ABB0B6", "muted2": "#C5C6C5",
@@ -727,8 +883,38 @@ let presets: [ThemePreset] = [
 let lightPresetIDs: [String: Bool] = Dictionary(
   uniqueKeysWithValues: presets.map { ($0.id, $0.computeIsLight()) }
 )
-let darkPresetsList: [ThemePreset] = presets.filter { lightPresetIDs[$0.id] == false }
-let lightPresetsList: [ThemePreset] = presets.filter { lightPresetIDs[$0.id] == true }
+
+/// Curated Minimal category — the showcase. Themes here are hand-tuned
+/// earth-tone palettes (umber, sienna, ochre, sage, clay, parchment) with
+/// restrained syntax colors. They're surfaced in their own filter and
+/// removed from the generic Dark / Light buckets so the Minimal list
+/// stays focused.
+let minimalPresetIDs: Set<String> = [
+  // Dark earth tones
+  "Sumi Ink",
+  "Terracotta",
+  "Moss Stone",
+  "Cedar",
+  "Dune",
+  "Espresso",
+  "Rust Iron",
+  "Olive Grove",
+  // Light earth tones
+  "Linen",
+  "Parchment",
+  "Sage Garden",
+  "Adobe",
+  "Stone",
+  "Wheat"
+]
+
+let minimalPresetsList: [ThemePreset] = presets.filter { minimalPresetIDs.contains($0.id) }
+let darkPresetsList: [ThemePreset] = presets.filter {
+  lightPresetIDs[$0.id] == false && !minimalPresetIDs.contains($0.id)
+}
+let lightPresetsList: [ThemePreset] = presets.filter {
+  lightPresetIDs[$0.id] == true && !minimalPresetIDs.contains($0.id)
+}
 
 // Thread-safe memoization cache for hex→NSColor parsing. Hex strings repeat
 // constantly across previews, swatches, presets, etc., so caching turns the
@@ -909,11 +1095,21 @@ final class ThemeModel: ObservableObject {
   // Confirmation modals for non-Apply toolbar actions.
   @Published var pendingBackupConfirmation: Bool = false
   @Published var pendingReloadConfirmation: Bool = false
+  @Published var pendingResetGroupConfirmation: Bool = false
+  @Published var pendingResetAllConfirmation: Bool = false
 
   // Result modals so the user always gets explicit success/fail feedback,
   // not just a status-bar update.
   @Published var backupResult: BackupOutcome? = nil
   @Published var reloadResult: ReloadOutcome? = nil
+  @Published var resetResult: ResetOutcome? = nil
+
+  enum ResetOutcome: Identifiable {
+    case success(cleared: Int, scope: String)
+    var id: String {
+      switch self { case .success(let c, let s): return "ok-\(c)-\(s)" }
+    }
+  }
 
   enum BackupOutcome: Identifiable {
     case success(files: [URL])
@@ -1461,16 +1657,106 @@ final class ThemeModel: ObservableObject {
     }
   }
 
-  func clearOverridesInSelectedGroup() {
-    for key in selectedDetailCategory.keys {
-      detailOverrides.removeValue(forKey: key)
+  // MARK: - Unsaved-edit detection
+  //
+  // The user can edit two independent layers without committing them via Apply:
+  //   1. `colors[]`  — palette swatches (Palette mode)
+  //   2. `detailOverrides[]` — workbench key custom values (Detailed mode)
+  // Reset must be enabled (and act on) BOTH so the user can always revert
+  // mid-edit, not only after Apply.
+
+  /// Palette baseline = the last committed state stored in `document.colors`
+  /// (updated on preset load, reload, and successful Apply).
+  var hasUnsavedPaletteEdits: Bool {
+    for key in colors.keys {
+      let baseline = document.colors[key]?.uppercased()
+      if baseline != colors[key]?.uppercased() { return true }
     }
-    status = "Cleared overrides in \(selectedDetailCategory.title)"
+    return false
+  }
+
+  var hasUnsavedDetailEdits: Bool { !detailOverrides.isEmpty }
+
+  var hasAnyUnsavedEdits: Bool { hasUnsavedPaletteEdits || hasUnsavedDetailEdits }
+
+  /// Palette keys that drift from the document baseline within a given list.
+  private func driftedPaletteKeys(in keys: [String]) -> [String] {
+    keys.filter { key in
+      let baseline = document.colors[key]?.uppercased()
+      return baseline != nil && colors[key]?.uppercased() != baseline
+    }
+  }
+
+  func clearOverridesInSelectedGroup() {
+    var clearedPalette = 0
+    var clearedOverrides = 0
+
+    // Revert palette swatches in the currently-visible base category back
+    // to the document baseline (works whether the user is on Palette or
+    // Detailed tab — Palette mode is the most common case here).
+    let paletteKeys = selectedBaseCategory.keys
+    for key in driftedPaletteKeys(in: paletteKeys) {
+      if let baseline = document.colors[key] {
+        colors[key] = baseline.uppercased()
+        clearedPalette += 1
+      }
+    }
+
+    // Clear workbench-level overrides for the currently-visible detail group.
+    let detailKeys = selectedDetailCategory.keys
+    for key in detailKeys where detailOverrides[key] != nil {
+      detailOverrides.removeValue(forKey: key)
+      clearedOverrides += 1
+    }
+
+    rebuildDetailColorsFromPalette()
+
+    let total = clearedPalette + clearedOverrides
+    let scope = (mode == .base) ? selectedBaseCategory.title : selectedDetailCategory.title
+    status = "Cleared \(total) edit\(total == 1 ? "" : "s") in \(scope)"
+    resetResult = .success(cleared: total, scope: scope)
   }
 
   func clearAllOverrides() {
+    var clearedPalette = 0
+    // Revert every palette key that drifts from baseline.
+    for key in colors.keys {
+      let baseline = document.colors[key]?.uppercased()
+      if baseline != nil && colors[key]?.uppercased() != baseline {
+        colors[key] = baseline ?? colors[key] ?? ""
+        clearedPalette += 1
+      }
+    }
+
+    let clearedOverrides = detailOverrides.count
     detailOverrides.removeAll()
-    status = "Cleared all detailed overrides"
+    rebuildDetailColorsFromPalette()
+
+    let total = clearedPalette + clearedOverrides
+    status = "Cleared \(total) edit\(total == 1 ? "" : "s")"
+    resetResult = .success(cleared: total, scope: "ทั้งหมด")
+  }
+
+  /// Re-render `detailColors` from the current in-memory palette so the
+  /// preview falls back to palette-derived values immediately after a reset
+  /// (otherwise `previewHex` could fall through to the on-disk state via
+  /// `targetWorkbenchColors` and keep showing the old override).
+  /// Also called whenever the user tweaks a palette swatch in Palette mode
+  /// so the cached detailColors stays in sync with live edits.
+  ///
+  /// Critically, `document.uiOverrides` is **stripped** before passing into
+  /// the applier. Otherwise the previously-applied custom values would be
+  /// re-baked into `detailColors`, and a Reset wouldn't visually clear the
+  /// user's edits — preview would stay stuck on the old custom hue.
+  func rebuildDetailColorsFromPalette() {
+    var doc = document
+    for (key, value) in colors { doc.colors[key] = value.uppercased() }
+    doc.uiOverrides.removeAll()
+    let applier = ThemeApplier(document: doc)
+    let pairs = applier.renderWorkbenchPairs()
+    var next: [String: String] = [:]
+    for (k, v) in pairs { next[k] = v.uppercased() }
+    detailColors = next
   }
 
   /// Triggered by Apply button. Opens confirmation sheet (does not run yet).

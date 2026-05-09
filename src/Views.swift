@@ -29,6 +29,12 @@ struct ContentView: View {
     .sheet(isPresented: $model.pendingReloadConfirmation) {
       ConfirmReloadSheet(model: model)
     }
+    .sheet(isPresented: $model.pendingResetGroupConfirmation) {
+      ConfirmResetSheet(model: model, scope: .group)
+    }
+    .sheet(isPresented: $model.pendingResetAllConfirmation) {
+      ConfirmResetSheet(model: model, scope: .all)
+    }
     .sheet(item: $model.applyResult) { outcome in
       ApplyResultSheet(model: model, outcome: outcome)
     }
@@ -37,6 +43,9 @@ struct ContentView: View {
     }
     .sheet(item: $model.reloadResult) { outcome in
       ReloadResultSheet(model: model, outcome: outcome)
+    }
+    .sheet(item: $model.resetResult) { outcome in
+      ResetResultSheet(model: model, outcome: outcome)
     }
     .preferredColorScheme(model.appColorScheme)
     .tint(model.appAccent)
@@ -384,12 +393,6 @@ struct SidebarView: View {
         .padding(.vertical, 12)
       }
 
-      Divider().opacity(0.4)
-
-      // ── Mode toggle (icon segmented at bottom) ────────────
-      ModeIconPicker(model: model)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
     }
     .background(.ultraThinMaterial)
   }
@@ -519,7 +522,6 @@ struct PresetPicker: View {
   @ObservedObject var model: ThemeModel
   @State private var pickerOpen = false
   @State private var search = ""
-  @State private var showSavePreset = false
   @Environment(\.themeChrome) private var theme
 
   private static let swatchKeys = ["bg0", "accent", "blue", "green", "red", "purple"]
@@ -570,26 +572,9 @@ struct PresetPicker: View {
         )
       }
 
-      // Save current state as user preset
-      Button {
-        showSavePreset = true
-      } label: {
-        HStack(spacing: 5) {
-          Image(systemName: "plus.circle")
-          Text("บันทึกเป็น Preset")
-            .font(.system(.caption, design: .rounded).weight(.semibold))
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 6)
-        .foregroundStyle(theme.accent)
-        .background(theme.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 7))
-        .overlay(RoundedRectangle(cornerRadius: 7).stroke(theme.accent.opacity(0.3)))
-      }
-      .buttonStyle(.plain)
-      .help("บันทึก palette ปัจจุบันเป็น preset ของคุณเอง — เรียกใช้ภายหลังได้เร็วขึ้น")
-      .sheet(isPresented: $showSavePreset) {
-        SavePresetSheet(model: model, isOpen: $showSavePreset)
-      }
+      // Mode toggle (Palette / Detailed) — sits right under the preset
+      // picker so palette/detailed editing context is visible alongside.
+      ModeIconPicker(model: model)
     }
   }
 }
@@ -654,12 +639,14 @@ struct FilterPill: View, Equatable {
 }
 
 enum PresetFilter: String, CaseIterable, Identifiable {
+  case minimal = "Minimal"
   case dark = "Dark"
   case light = "Light"
   case myPresets = "My Presets"
   var id: String { rawValue }
   var icon: String {
     switch self {
+    case .minimal: return "sparkles"
     case .dark: return "moon.fill"
     case .light: return "sun.max.fill"
     case .myPresets: return "heart.fill"
@@ -672,7 +659,7 @@ struct PresetPickerPopover: View {
   @ObservedObject var model: ThemeModel
   @Binding var search: String
   @Binding var isOpen: Bool
-  @State private var filter: PresetFilter = .dark
+  @State private var filter: PresetFilter = .minimal
   @Environment(\.themeChrome) private var theme
 
   /// Active preset list for the current filter, with search applied.
@@ -680,6 +667,7 @@ struct PresetPickerPopover: View {
   private var visiblePresets: [ThemePreset] {
     let base: [ThemePreset]
     switch filter {
+    case .minimal: base = minimalPresetsList
     case .dark: base = darkPresetsList
     case .light: base = lightPresetsList
     case .myPresets: return [] // user presets handled separately
@@ -698,6 +686,7 @@ struct PresetPickerPopover: View {
 
   private func count(for f: PresetFilter) -> Int {
     switch f {
+    case .minimal: return minimalPresetsList.count
     case .dark: return darkPresetsList.count
     case .light: return lightPresetsList.count
     case .myPresets: return model.userPresets.count
@@ -763,7 +752,7 @@ struct PresetPickerPopover: View {
           if visibleUserPresets.isEmpty { emptyState } else {
             ForEach(visibleUserPresets, id: \.id) { spec in userPresetRow(spec) }
           }
-        case .dark, .light:
+        case .minimal, .dark, .light:
           if visiblePresets.isEmpty { emptyState } else {
             ForEach(visiblePresets) { preset in presetRow(preset) }
           }
@@ -1025,81 +1014,101 @@ struct DetailContainer: View {
 
 struct DetailHeader: View {
   @ObservedObject var model: ThemeModel
-  @FocusState private var filterFocused: Bool
   @Environment(\.themeChrome) private var theme
+
+  /// Width matched to the right Inspector column minus a small visual
+  /// breathing margin so the field doesn't kiss the right edge once
+  /// the surrounding pane padding is added.
+  private static let searchWidth: CGFloat = 340
 
   var body: some View {
     HStack(alignment: .center, spacing: 14) {
-      VStack(alignment: .leading, spacing: 2) {
-        HStack(spacing: 8) {
-          Image(systemName: currentCategory.symbol)
-            .foregroundStyle(.secondary)
-            .font(.system(size: 14))
-          Text(currentCategory.title)
-            .font(.system(.title3, design: .rounded).weight(.semibold))
-          Text("·").foregroundStyle(.secondary)
-          Text("\(visibleCount) keys")
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-          if model.mode == .detailed && model.detailOverrides.count > 0 {
-            Text("·").foregroundStyle(.secondary)
-            Label("\(model.detailOverrides.count) custom", systemImage: "checkmark.seal.fill")
-              .labelStyle(.titleAndIcon)
-              .font(.caption.weight(.semibold))
-              .padding(.horizontal, 8).padding(.vertical, 3)
-              .foregroundStyle(theme.success)
-              .background(theme.success.opacity(0.15), in: Capsule())
-          }
-        }
-        Text(currentCategory.subtitle)
-          .font(.caption)
+      // Title block — left-aligned
+      HStack(spacing: 10) {
+        Image(systemName: currentCategory.symbol)
           .foregroundStyle(.secondary)
-          .lineLimit(1)
+          .font(.system(size: 14))
+        VStack(alignment: .leading, spacing: 1) {
+          HStack(spacing: 8) {
+            Text(currentCategory.title)
+              .font(.system(.title3, design: .rounded).weight(.semibold))
+            Text("·").foregroundStyle(.secondary)
+            Text("\(visibleCount) keys")
+              .font(.subheadline)
+              .foregroundStyle(.secondary)
+            if model.mode == .detailed && model.detailOverrides.count > 0 {
+              Label("\(model.detailOverrides.count) custom", systemImage: "checkmark.seal.fill")
+                .labelStyle(.titleAndIcon)
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .foregroundStyle(theme.success)
+                .background(theme.success.opacity(0.15), in: Capsule())
+            }
+          }
+          Text(currentCategory.subtitle)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
       }
 
       Spacer(minLength: 12)
 
-      // Filter
-      HStack(spacing: 6) {
-        Image(systemName: "magnifyingglass")
-          .font(.system(size: 12))
-          .foregroundStyle(.secondary)
-        TextField("Filter keys…", text: $model.filterText)
-          .textFieldStyle(.plain)
-          .focused($filterFocused)
-          .frame(width: 200)
-        if !model.filterText.isEmpty {
-          Button {
-            model.filterText = ""
-          } label: {
-            Image(systemName: "xmark.circle.fill")
-              .foregroundStyle(.secondary)
-          }
-          .buttonStyle(.plain)
-        }
-      }
-      .padding(.horizontal, 10).padding(.vertical, 6)
-      .background(theme.surface(0.06), in: RoundedRectangle(cornerRadius: 8))
-      .overlay(RoundedRectangle(cornerRadius: 8).stroke(theme.surface(filterFocused ? 0.2 : 0.08)))
-      .help("ค้นหาสีในกลุ่มนี้ — พิมพ์ชื่อ key หรือชื่อภาษาไทยที่อธิบาย")
-
-      if model.mode == .detailed {
-        Menu {
-          Button("Reset This Group") { model.clearOverridesInSelectedGroup() }
-            .disabled(model.detailOverrides.isEmpty)
-          Button("Reset All Custom", role: .destructive) { model.clearAllOverrides() }
-            .disabled(model.detailOverrides.isEmpty)
-        } label: {
-          Image(systemName: "ellipsis.circle")
-            .font(.system(size: 14))
-        }
-        .menuStyle(.borderlessButton)
-        .frame(width: 28)
-        .help("เมนูสำหรับรีเซ็ตค่า override ในกลุ่มนี้")
-      }
+      // Search — fixed width matching inspector column.
+      // No FocusState so the field doesn't auto-focus on launch and
+      // doesn't keep an "always active" highlight; we rely on the
+      // system's own NSTextField focus ring (subtle blue when focused).
+      searchField
+        .frame(width: Self.searchWidth)
     }
     .padding(.horizontal, 20)
     .padding(.vertical, 14)
+  }
+
+  private var searchField: some View {
+    HStack(spacing: 8) {
+      Image(systemName: "magnifyingglass")
+        .font(.system(size: 12, weight: .medium))
+        .foregroundStyle(.secondary)
+      TextField("Filter keys…", text: $model.filterText)
+        .textFieldStyle(.plain)
+        .font(.system(size: 13))
+        .frame(maxWidth: .infinity)
+      if !model.filterText.isEmpty {
+        Button {
+          model.filterText = ""
+        } label: {
+          Image(systemName: "xmark.circle.fill")
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+      }
+    }
+    .padding(.horizontal, 10).padding(.vertical, 6)
+    .frame(height: 28)
+    .background(
+      RoundedRectangle(cornerRadius: 8, style: .continuous)
+        .fill(theme.surface(0.06))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 8, style: .continuous)
+        .stroke(theme.surface(0.08), lineWidth: 0.8)
+    )
+    .help("ค้นหาสีในกลุ่มนี้ — พิมพ์ชื่อ key หรือชื่อภาษาไทยที่อธิบาย")
+    // SwiftUI on macOS auto-promotes the only TextField in a window to
+    // first responder, which makes the cursor blink in this field even
+    // before the user clicks. Force first-responder to nil on appear so
+    // typing only starts after an explicit click.
+    .onAppear { resignFirstResponderSoon() }
+  }
+
+  /// Defer to the next runloop tick so the window has finished laying
+  /// out responders before we clear focus.
+  private func resignFirstResponderSoon() {
+    DispatchQueue.main.async {
+      NSApp.keyWindow?.makeFirstResponder(nil)
+    }
   }
 
   private var currentCategory: ColorCategory {
@@ -1262,7 +1271,11 @@ struct CompactColorRow: View {
 
   private func write(_ value: String) {
     if isBase {
+      // Palette edit — keep detailColors in sync so all derived workbench
+      // keys preview the new palette value live (instead of returning the
+      // stale cached value from before this edit).
       model.colors[keyName] = value
+      model.rebuildDetailColorsFromPalette()
     } else {
       model.detailColors[keyName] = value
       model.detailOverrides[keyName] = value
@@ -1287,21 +1300,37 @@ struct CompactColorRow: View {
 
 struct InspectorView: View {
   @ObservedObject var model: ThemeModel
+  @State private var showSavePreset = false
+  @Environment(\.themeChrome) private var theme
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 18) {
-        section("LIVE PREVIEW · \(model.activeTarget.name)") {
-          IDEPreview(model: model)
+    VStack(spacing: 0) {
+      ScrollView {
+        VStack(alignment: .leading, spacing: 18) {
+          section("LIVE PREVIEW · \(model.activeTarget.name)") {
+            IDEPreview(model: model)
+          }
+          section("PALETTE") {
+            PaletteGrid(model: model)
+          }
+          section("INSPECTOR") {
+            SelectedKeyInfo(model: model)
+          }
         }
-        section("PALETTE") {
-          PaletteGrid(model: model)
-        }
-        section("INSPECTOR") {
-          SelectedKeyInfo(model: model)
-        }
+        .padding(16)
       }
-      .padding(16)
+
+      // Pinned to the bottom of the inspector — Reset cluster (only does
+      // anything in Detailed mode) sits above the primary Save action.
+      Divider().opacity(0.4)
+      VStack(spacing: 8) {
+        resetCluster
+        savePresetButton
+      }
+      .padding(12)
+      .sheet(isPresented: $showSavePreset) {
+        SavePresetSheet(model: model, isOpen: $showSavePreset)
+      }
     }
     .background(.ultraThinMaterial)
   }
@@ -1313,6 +1342,89 @@ struct InspectorView: View {
         .foregroundStyle(.secondary)
       content()
     }
+  }
+
+  // MARK: Bottom action cluster
+
+  /// Two-button reset row. Acts on EITHER unsaved palette swatch edits or
+  /// detailed overrides — so the user can revert mid-edit without first
+  /// having to Apply. Disabled only when both layers match baseline.
+  private var resetCluster: some View {
+    let canReset = model.hasAnyUnsavedEdits
+    return HStack(spacing: 8) {
+      resetButton(
+        title: "Reset Group",
+        symbol: "arrow.counterclockwise",
+        tone: .secondary,
+        disabled: !canReset,
+        action: { model.pendingResetGroupConfirmation = true },
+        help: "ล้าง edit ในกลุ่มปัจจุบัน — กลับไปใช้ค่าจาก preset / theme.json ล่าสุด"
+      )
+      resetButton(
+        title: "Reset All",
+        symbol: "arrow.uturn.backward.circle",
+        tone: theme.danger,
+        disabled: !canReset,
+        action: { model.pendingResetAllConfirmation = true },
+        help: "ล้าง edit ทั้งหมด (palette + override) — กลับไปสภาพล่าสุดที่ Apply / Reload"
+      )
+    }
+  }
+
+  private func resetButton(
+    title: String,
+    symbol: String,
+    tone: Color,
+    disabled: Bool,
+    action: @escaping () -> Void,
+    help: String
+  ) -> some View {
+    Button(action: action) {
+      HStack(spacing: 5) {
+        Image(systemName: symbol)
+          .font(.system(size: 11, weight: .semibold))
+        Text(title)
+          .font(.system(.caption, design: .rounded).weight(.semibold))
+      }
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 7)
+      .foregroundStyle(disabled ? Color.secondary.opacity(0.5) : tone)
+      .background(
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .fill(theme.surface(0.05))
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .stroke(theme.surface(0.10), lineWidth: 0.8)
+      )
+    }
+    .buttonStyle(.plain)
+    .disabled(disabled)
+    .help(disabled ? "ไม่มี override ที่ต้องล้าง" : help)
+  }
+
+  /// Primary Save action.
+  private var savePresetButton: some View {
+    Button {
+      showSavePreset = true
+    } label: {
+      HStack(spacing: 6) {
+        Image(systemName: "heart.fill")
+          .font(.system(size: 12, weight: .semibold))
+        Text("Save My Preset")
+          .font(.system(.callout, design: .rounded).weight(.semibold))
+      }
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 9)
+      .foregroundStyle(theme.accent)
+      .background(theme.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+      .overlay(
+        RoundedRectangle(cornerRadius: 9, style: .continuous)
+          .stroke(theme.accent.opacity(0.3))
+      )
+    }
+    .buttonStyle(.plain)
+    .help("บันทึก palette ปัจจุบันเป็น preset ของคุณเอง — เรียกใช้ภายหลังได้เร็วขึ้น")
   }
 }
 
@@ -2508,6 +2620,95 @@ struct ConfirmReloadSheet: View {
         model.reloadFromUI()
       })
     )
+  }
+}
+
+// MARK: - Confirm Reset Sheet (Apple-style minimal alert)
+
+struct ConfirmResetSheet: View {
+  enum Scope { case group, all }
+  @ObservedObject var model: ThemeModel
+  let scope: Scope
+  @Environment(\.themeChrome) private var theme
+
+  private var title: String {
+    scope == .group ? "ล้าง override ของกลุ่มนี้" : "ล้าง override ทั้งหมด"
+  }
+
+  private var message: String {
+    let palette: Int
+    let overrides: Int
+    let scopeText: String
+    if scope == .group {
+      let baseKeys = model.selectedBaseCategory.keys
+      palette = baseKeys.filter { key in
+        let base = model.document.colors[key]?.uppercased()
+        return base != nil && model.colors[key]?.uppercased() != base
+      }.count
+      let detailKeys = model.selectedDetailCategory.keys
+      overrides = detailKeys.filter { model.detailOverrides[$0] != nil }.count
+      scopeText = "ในกลุ่ม \(model.mode == .base ? model.selectedBaseCategory.title : model.selectedDetailCategory.title)"
+    } else {
+      palette = model.colors.keys.filter { key in
+        let base = model.document.colors[key]?.uppercased()
+        return base != nil && model.colors[key]?.uppercased() != base
+      }.count
+      overrides = model.detailOverrides.count
+      scopeText = "ทั้งหมด"
+    }
+    var parts: [String] = []
+    if palette > 0 { parts.append("\(palette) palette edit") }
+    if overrides > 0 { parts.append("\(overrides) override") }
+    let detail = parts.isEmpty ? "ไม่มีรายการให้ล้าง" : parts.joined(separator: " + ")
+    return "จะล้าง \(detail) \(scopeText) — กลับไปใช้ค่าก่อนแก้ล่าสุด"
+  }
+
+  private var tone: Color { scope == .all ? theme.danger : theme.warning }
+
+  var body: some View {
+    AlertCard(
+      symbol: scope == .all ? "arrow.uturn.backward.circle.fill" : "arrow.counterclockwise",
+      tone: tone,
+      title: title,
+      message: message,
+      cancel: ("ยกเลิก", {
+        if scope == .group { model.pendingResetGroupConfirmation = false }
+        else { model.pendingResetAllConfirmation = false }
+      }),
+      confirm: ("ล้าง", {
+        if scope == .group {
+          model.pendingResetGroupConfirmation = false
+          model.clearOverridesInSelectedGroup()
+        } else {
+          model.pendingResetAllConfirmation = false
+          model.clearAllOverrides()
+        }
+      })
+    )
+  }
+}
+
+// MARK: - Reset Result Sheet
+
+struct ResetResultSheet: View {
+  @ObservedObject var model: ThemeModel
+  let outcome: ThemeModel.ResetOutcome
+  @Environment(\.themeChrome) private var theme
+
+  var body: some View {
+    switch outcome {
+    case .success(let cleared, let scope):
+      ResultCard(
+        symbol: cleared > 0 ? "checkmark.circle.fill" : "info.circle.fill",
+        tone: cleared > 0 ? theme.success : theme.accent,
+        title: cleared > 0 ? "ล้างแล้ว" : "ไม่มี override ให้ล้าง",
+        message: cleared > 0
+          ? "ล้าง \(cleared) ค่า custom · ขอบเขต: \(scope) · preview ถูก sync แล้ว"
+          : "กลุ่มนี้ยังไม่มี custom override — preview ใช้ palette อยู่แล้ว",
+        primary: ("เสร็จสิ้น", { model.resetResult = nil }),
+        secondary: nil
+      )
+    }
   }
 }
 
