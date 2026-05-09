@@ -370,7 +370,7 @@ struct SidebarView: View {
           .frame(width: 32, height: 32)
         VStack(alignment: .leading, spacing: 1) {
           Text("Paenia")
-            .font(.system(.subheadline, design: .rounded).weight(.bold))
+            .font(.custom("Didot-Italic", size: 22))
           Text("Editor color customization")
             .font(.system(size: 10))
             .foregroundStyle(.secondary)
