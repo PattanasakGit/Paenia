@@ -64,8 +64,8 @@ assets/icon-source.png
 ## Runtime Files
 
 ```text
-~/Applications/Workbench Theme Studio.app
-~/Library/Application Support/Workbench Theme Studio/theme.json
+~/Applications/Paenia.app
+~/Library/Application Support/Paenia/theme.json
 ~/Library/Application Support/<target>/User/settings.json
 ~/Library/Application Support/<target>/User/settings.json.backup-<timestamp>[-N]
 ```

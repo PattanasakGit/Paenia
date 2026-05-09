@@ -369,7 +369,7 @@ struct SidebarView: View {
         AppMark(colors: model.colors)
           .frame(width: 32, height: 32)
         VStack(alignment: .leading, spacing: 1) {
-          Text("Workbench Theme")
+          Text("Paenia")
             .font(.system(.subheadline, design: .rounded).weight(.bold))
           Text("Editor color customization")
             .font(.system(size: 10))

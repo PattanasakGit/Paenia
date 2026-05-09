@@ -12,13 +12,13 @@ The app expects:
 
 ```text
 ~/Library/Application Support/<target>/User/settings.json
-~/Library/Application Support/Workbench Theme Studio/theme.json
+~/Library/Application Support/Paenia/theme.json
 ```
 
 The app installs to:
 
 ```text
-~/Applications/Workbench Theme Studio.app
+~/Applications/Paenia.app
 ```
 
 ## Functional Requirements

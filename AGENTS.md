@@ -1,6 +1,6 @@
 # AI Development Instructions
 
-This project is the Workbench Theme Studio app. Continue development from here.
+This project is the Paenia app. Continue development from here.
 
 ## Safety
 

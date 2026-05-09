@@ -1,4 +1,4 @@
-# Workbench Theme Studio
+# Paenia
 
 Native macOS app for editing VS Code-family editor theme colors with a live preview, organized presets, and a safe apply pipeline.
 
@@ -36,14 +36,14 @@ SwiftUI App ──edit──▶ theme.json ──ThemeApplier──▶ each targ
 ## Installed Locations
 
 ```text
-~/Applications/Workbench Theme Studio.app
-~/Library/Application Support/Workbench Theme Studio/theme.json
+~/Applications/Paenia.app
+~/Library/Application Support/Paenia/theme.json
 ```
 
 ## Build & Install
 
 ```sh
-./scripts/build.sh      # build into build/Workbench Theme Studio.app
+./scripts/build.sh      # build into build/Paenia.app
 ./scripts/install.sh    # build + copy into ~/Applications and seed theme.json
 ```
 
@@ -52,7 +52,7 @@ The installer only seeds `theme.json` if it does not already exist; existing use
 ## Open
 
 ```sh
-open "$HOME/Applications/Workbench Theme Studio.app"
+open "$HOME/Applications/Paenia.app"
 ```
 
 ## Keyboard Shortcuts

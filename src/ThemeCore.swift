@@ -481,7 +481,7 @@ struct ThemeApplier {
   func renderWorkbenchBlock() -> String {
     let pairs = renderWorkbenchPairs()
     var lines: [String] = []
-    lines.append("    // Generated from Workbench Theme Studio.")
+    lines.append("    // Generated from Paenia.")
     lines.append("    // Edit theme.json or use the native app.")
     for (i, pair) in pairs.enumerated() {
       let suffix = i == pairs.count - 1 ? "" : ","

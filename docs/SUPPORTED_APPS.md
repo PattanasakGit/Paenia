@@ -1,6 +1,6 @@
 # Supported Apps
 
-Workbench Theme Studio targets editors that use VS Code-compatible `User/settings.json` files and support `workbench.colorCustomizations`.
+Paenia targets editors that use VS Code-compatible `User/settings.json` files and support `workbench.colorCustomizations`.
 
 ## Built-In Targets
 

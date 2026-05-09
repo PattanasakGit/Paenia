@@ -3,7 +3,10 @@ import AppKit
 
 let appSupportRoot = FileManager.default.homeDirectoryForCurrentUser
   .appendingPathComponent("Library/Application Support")
-let studioDir = appSupportRoot.appendingPathComponent("Workbench Theme Studio")
+/// Legacy support directory from before the rebrand. Migrated to `studioDir`
+/// on first launch (see `migrateLegacyStudioDirIfNeeded()`).
+private let legacyStudioDir = appSupportRoot.appendingPathComponent("Workbench Theme Studio")
+let studioDir = appSupportRoot.appendingPathComponent("Paenia")
 let themeURL = studioDir.appendingPathComponent("theme.json")
 let backupsRoot = studioDir.appendingPathComponent("Backups")
 
@@ -29,7 +32,7 @@ func originalBackupURL(for sourceURL: URL) -> URL {
 enum AppInfo {
   static let name: String = (Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
     ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String)
-    ?? "Workbench Theme Studio"
+    ?? "Paenia"
 
   static let version: String = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
     ?? "1.0.0"
@@ -37,10 +40,10 @@ enum AppInfo {
   static let build: String = (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String)
     ?? "1"
 
-  static let bundleID: String = Bundle.main.bundleIdentifier ?? "com.workbench.theme-studio"
+  static let bundleID: String = Bundle.main.bundleIdentifier ?? "app.paenia"
 
   static let copyright: String = (Bundle.main.object(forInfoDictionaryKey: "NSHumanReadableCopyright") as? String)
-    ?? "© Workbench Theme Studio"
+    ?? "© Paenia"
 
   static let systemVersion: String = {
     let v = ProcessInfo.processInfo.operatingSystemVersion
@@ -1289,9 +1292,27 @@ final class ThemeModel: ObservableObject {
   }
 
   init() {
+    Self.migrateLegacyStudioDirIfNeeded()
     ensureThemeFile()
     reload()
     captureOriginalsIfNeeded()
+  }
+
+  /// One-time migration: if the legacy "Workbench Theme Studio" support
+  /// folder exists from before the rebrand and a Paenia folder hasn't been
+  /// created yet, move it over wholesale. Preserves theme.json, regular
+  /// Backups, OriginalBackups, and any custom presets the user saved.
+  /// Idempotent and silent — safe to call on every launch.
+  private static func migrateLegacyStudioDirIfNeeded() {
+    let fm = FileManager.default
+    guard fm.fileExists(atPath: legacyStudioDir.path) else { return }
+    if fm.fileExists(atPath: studioDir.path) { return }
+    do {
+      try fm.moveItem(at: legacyStudioDir, to: studioDir)
+    } catch {
+      // Best-effort copy fallback if move fails (e.g. cross-volume edge case)
+      try? fm.copyItem(at: legacyStudioDir, to: studioDir)
+    }
   }
 
   private func ensureThemeFile() {
@@ -2103,7 +2124,7 @@ final class ThemeModel: ObservableObject {
 
 
 @main
-struct CursorThemeCustomizerApp: App {
+struct PaeniaApp: App {
   init() {
     // Speed up macOS tooltips. The default initial-show delay is ~1s which feels
     // sluggish for a dense toolbar. NSToolTipManager exposes this via KVC.

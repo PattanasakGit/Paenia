@@ -9,7 +9,7 @@
 Compiles all three Swift sources together (`CursorThemeCustomizer.swift`, `ThemeCore.swift`, `Views.swift`) and bundles `theme.json`, `Info.plist`, and the icon. Output:
 
 ```text
-build/Workbench Theme Studio.app
+build/Paenia.app
 ```
 
 ## Install
@@ -18,12 +18,12 @@ build/Workbench Theme Studio.app
 ./scripts/install.sh
 ```
 
-Builds, ditto's the app to `~/Applications/`. Seeds `theme.json` into `~/Library/Application Support/Workbench Theme Studio/` only if missing, so existing user state is preserved across reinstalls.
+Builds, ditto's the app to `~/Applications/`. Seeds `theme.json` into `~/Library/Application Support/Paenia/` only if missing, so existing user state is preserved across reinstalls.
 
 ## Run
 
 ```sh
-open "$HOME/Applications/Workbench Theme Studio.app"
+open "$HOME/Applications/Paenia.app"
 ```
 
 The Swift binary is the only runtime — there is no Node.js step, no daemon, no helper.
@@ -31,9 +31,9 @@ The Swift binary is the only runtime — there is no Node.js step, no daemon, no
 ## Verify Bundle
 
 ```sh
-plutil -p "$HOME/Applications/Workbench Theme Studio.app/Contents/Info.plist"
-file "$HOME/Applications/Workbench Theme Studio.app/Contents/Resources/AppIcon.icns"
-ls   "$HOME/Applications/Workbench Theme Studio.app/Contents/Resources/theme.json"
+plutil -p "$HOME/Applications/Paenia.app/Contents/Info.plist"
+file "$HOME/Applications/Paenia.app/Contents/Resources/AppIcon.icns"
+ls   "$HOME/Applications/Paenia.app/Contents/Resources/theme.json"
 ```
 
 Expected:
@@ -46,7 +46,7 @@ Expected:
 
 ### Source of Truth
 
-`~/Library/Application Support/Workbench Theme Studio/theme.json` holds the complete theme — palette, ui template, overrides, token rules, target overrides, custom targets, user presets. The app updates it atomically before applying to any editor.
+`~/Library/Application Support/Paenia/theme.json` holds the complete theme — palette, ui template, overrides, token rules, target overrides, custom targets, user presets. The app updates it atomically before applying to any editor.
 
 ### Apply Pipeline
 
