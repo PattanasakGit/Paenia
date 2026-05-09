@@ -1224,29 +1224,64 @@ struct CompactColorRow: View {
 
       Spacer(minLength: 10)
 
-      TextField("#RRGGBB", text: value)
-        .font(.system(.caption, design: .monospaced))
-        .textFieldStyle(.roundedBorder)
-        .frame(width: 102)
+      // All trailing controls share corner radius 8 + height 28 so the
+      // shapes read as one harmonized cluster (no pill-vs-square mismatch).
+      let r: CGFloat = 8
+      let h: CGFloat = 28
 
-      ColorPicker("", selection: picker, supportsOpacity: false)
-        .labelsHidden()
-        .frame(width: 30)
+      // Hex input — Apple-style: plain text on a subtle rounded chip.
+      TextField("#RRGGBB", text: value)
+        .font(.system(size: 12, design: .monospaced))
+        .multilineTextAlignment(.center)
+        .textFieldStyle(.plain)
+        .frame(width: 92, height: h)
+        .background(
+          RoundedRectangle(cornerRadius: r, style: .continuous)
+            .fill(theme.surface(0.05))
+        )
+        .overlay(
+          RoundedRectangle(cornerRadius: r, style: .continuous)
+            .stroke(theme.surface(0.10), lineWidth: 0.8)
+        )
+
+      // Custom swatch — a clean rounded-rectangle filled with the current
+      // color. The native ColorPicker is overlaid with near-zero opacity so
+      // it still receives the click and opens the system color panel, but
+      // we get full control over the visible shape (matching the hex chip).
+      ZStack {
+        RoundedRectangle(cornerRadius: r, style: .continuous)
+          .fill(Color(nsColor: nsColor(from: currentValue)))
+        RoundedRectangle(cornerRadius: r, style: .continuous)
+          .stroke(theme.surface(0.18), lineWidth: 0.8)
+        ColorPicker("", selection: picker, supportsOpacity: false)
+          .labelsHidden()
+          .opacity(0.02)              // invisible but still clickable
+          .allowsHitTesting(true)
+      }
+      .frame(width: 44, height: h)
+      .help("คลิกเพื่อเปิด Color Picker — หรือพิมพ์ hex ในช่องด้านซ้าย")
 
       if !isBase {
         Button {
           model.detailOverrides.removeValue(forKey: keyName)
+          model.rebuildDetailColorsFromPalette()
           model.status = "Reset \(keyName) to palette-generated value"
         } label: {
           Image(systemName: "arrow.counterclockwise")
-            .font(.system(size: 11))
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(isOverride ? .secondary : Color.secondary.opacity(0.3))
+            .frame(width: h, height: h)
+            .contentShape(RoundedRectangle(cornerRadius: r, style: .continuous))
         }
         .buttonStyle(.plain)
-        .frame(width: 24, height: 24)
-        .background(theme.surface(isOverride ? 0.06 : 0), in: Circle())
+        .background(
+          RoundedRectangle(cornerRadius: r, style: .continuous)
+            .fill(theme.surface(isOverride ? 0.06 : 0))
+        )
         .disabled(!isOverride)
-        .opacity(isOverride ? 1 : 0.25)
-        .help("ลบค่า custom ของ key นี้ — จะกลับไปใช้สีจาก palette อัตโนมัติ")
+        .help(isOverride
+              ? "ลบค่า custom ของ key นี้ — จะกลับไปใช้สีจาก palette อัตโนมัติ"
+              : "ยังไม่มี override ที่ต้องล้าง")
       }
     }
     .padding(.horizontal, 12).padding(.vertical, 8)
