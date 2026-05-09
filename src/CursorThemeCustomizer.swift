@@ -7,6 +7,41 @@ let studioDir = appSupportRoot.appendingPathComponent("Workbench Theme Studio")
 let themeURL = studioDir.appendingPathComponent("theme.json")
 let backupsRoot = studioDir.appendingPathComponent("Backups")
 
+/// Static, read-once metadata about the current app bundle. Used by the
+/// About pane in Preferences and any place we want to surface version /
+/// system info to the user. All values come from the bundle's Info.plist
+/// so they stay in sync with the build automatically.
+enum AppInfo {
+  static let name: String = (Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
+    ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String)
+    ?? "Workbench Theme Studio"
+
+  static let version: String = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
+    ?? "1.0.0"
+
+  static let build: String = (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String)
+    ?? "1"
+
+  static let bundleID: String = Bundle.main.bundleIdentifier ?? "com.workbench.theme-studio"
+
+  static let copyright: String = (Bundle.main.object(forInfoDictionaryKey: "NSHumanReadableCopyright") as? String)
+    ?? "© Workbench Theme Studio"
+
+  static let systemVersion: String = {
+    let v = ProcessInfo.processInfo.operatingSystemVersion
+    return "macOS \(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
+  }()
+
+  /// Short MIT license snippet shown in About → License so the user can
+  /// see the redistribution terms without leaving the app.
+  static let licenseSnippet: String = """
+  Permission is hereby granted, free of charge, to any person obtaining a copy of this \
+  software and associated documentation files (the "Software"), to deal in the Software \
+  without restriction, including without limitation the rights to use, copy, modify, \
+  merge, publish, distribute, sublicense, and/or sell copies of the Software.
+  """
+}
+
 /// Stable, filesystem-safe folder name keyed by absolute source path.
 /// Backups for `<X>/settings.json` go under `Backups/<encoded-path>/` so we
 /// never clutter the editor's own User folder.

@@ -5,7 +5,7 @@
   <key>CFBundleExecutable</key>
   <string>Workbench Theme Studio</string>
   <key>CFBundleIdentifier</key>
-  <string>local.workbench-theme-studio</string>
+  <string>com.workbench.theme-studio</string>
   <key>CFBundleName</key>
   <string>Workbench Theme Studio</string>
   <key>CFBundleDisplayName</key>
@@ -15,12 +15,24 @@
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>95</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.0</string>
+  <string>0.0.95</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.developer-tools</string>
   <key>LSMinimumSystemVersion</key>
   <string>13.0</string>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>NSSupportsAutomaticGraphicsSwitching</key>
+  <true/>
+  <key>NSHumanReadableCopyright</key>
+  <string>© 2026 Workbench Theme Studio. Released under the MIT License.</string>
+  <key>NSPrincipalClass</key>
+  <string>NSApplication</string>
 </dict>
 </plist>

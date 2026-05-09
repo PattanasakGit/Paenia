@@ -54,12 +54,13 @@ struct ContentView: View {
   }
 
   /// Icon-only toolbar button. Description shows on hover via `.help(...)` on the caller.
+  /// Square frame so the .bordered button style renders as a circle (capsule
+  /// only collapses to a perfect circle when width == height).
   private func toolbarIcon(_ icon: String) -> some View {
     Image(systemName: icon)
       .font(.system(size: 12, weight: .medium))
-      .frame(width: 30, height: 26)
-      .padding(.horizontal, 2)
-      .contentShape(Rectangle())
+      .frame(width: 26, height: 26)
+      .contentShape(Circle())
   }
 
   @ToolbarContentBuilder
@@ -1922,6 +1923,8 @@ enum PrefCategory: String, CaseIterable, Identifiable {
   case targets = "Apply Targets"
   case backups = "Backups"
   case storage = "Storage"
+  case help = "Help & Support"
+  case about = "About"
 
   var id: String { rawValue }
 
@@ -1930,6 +1933,8 @@ enum PrefCategory: String, CaseIterable, Identifiable {
     case .targets: return "macwindow.on.rectangle"
     case .backups: return "clock.arrow.circlepath"
     case .storage: return "internaldrive.fill"
+    case .help: return "questionmark.circle.fill"
+    case .about: return "info.circle.fill"
     }
   }
 
@@ -1938,6 +1943,8 @@ enum PrefCategory: String, CaseIterable, Identifiable {
     case .targets: return Color(red: 0.30, green: 0.62, blue: 0.98)
     case .backups: return Color(red: 0.95, green: 0.62, blue: 0.20)
     case .storage: return Color(red: 0.40, green: 0.78, blue: 0.50)
+    case .help: return Color(red: 0.55, green: 0.45, blue: 0.95)
+    case .about: return Color(red: 0.40, green: 0.55, blue: 0.65)
     }
   }
 }
@@ -1956,6 +1963,31 @@ struct PreferencesSheet: View {
     }
     .frame(width: 760, height: 580)
     .background(.background)
+    .overlay(alignment: .topTrailing) {
+      // Apple-style modal close — circular X at the top-right corner.
+      // Replaces the Done button so the sheet feels like a system Settings
+      // window rather than a wizard footer.
+      Button {
+        model.showPreferences = false
+      } label: {
+        Image(systemName: "xmark")
+          .font(.system(size: 11, weight: .bold))
+          .foregroundStyle(.secondary)
+          .frame(width: 22, height: 22)
+          .background(
+            Circle().fill(theme.surface(0.10))
+          )
+          .overlay(
+            Circle().stroke(theme.surface(0.14), lineWidth: 0.8)
+          )
+          .contentShape(Circle())
+      }
+      .buttonStyle(.plain)
+      .keyboardShortcut(.cancelAction)
+      .keyboardShortcut(.defaultAction)
+      .padding(14)
+      .help("ปิด Settings (Esc / ⏎)")
+    }
     .sheet(isPresented: $showAddCustom) {
       CustomTargetEditor(
         model: model,
@@ -1985,15 +2017,6 @@ struct PreferencesSheet: View {
       .padding(.horizontal, 8)
 
       Spacer()
-
-      HStack {
-        Spacer()
-        Button("Done") { model.showPreferences = false }
-          .keyboardShortcut(.defaultAction)
-          .buttonStyle(.borderedProminent)
-          .controlSize(.large)
-      }
-      .padding(16)
     }
     .frame(width: 220)
     .background(theme.surface(0.025))
@@ -2035,6 +2058,8 @@ struct PreferencesSheet: View {
         case .targets: targetsPane
         case .backups: backupsPane
         case .storage: storagePane
+        case .help: helpPane
+        case .about: aboutPane
         }
         Spacer(minLength: 8)
       }
@@ -2091,6 +2116,152 @@ struct PreferencesSheet: View {
       pathRow(icon: "macwindow", tint: .purple, label: "Active settings.json", path: model.activeTarget.settingsURL.path)
       SettingsDivider()
       pathRow(icon: "archivebox.fill", tint: .orange, label: "Backups folder", path: backupsRoot.path)
+    }
+  }
+
+  // MARK: - Help & Support Pane
+
+  private var helpPane: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      SettingsGroup(title: "Quick Start",
+                    footer: "เริ่มต้นใช้งานใน 4 ขั้นตอน") {
+        helpStep(num: "1", title: "เลือก Editor", body: "เลือก Cursor / VS Code / editor อื่น ๆ ที่จะรับ theme จาก toolbar ด้านซ้ายบน")
+        SettingsDivider()
+        helpStep(num: "2", title: "เลือก Preset", body: "เปิด preset picker ที่ sidebar ซ้าย — เริ่มจากหมวด Minimal · Earth Tone")
+        SettingsDivider()
+        helpStep(num: "3", title: "ปรับสีถ้าต้องการ", body: "Palette tab แก้สีหลัก, Detailed tab แก้สีเฉพาะแต่ละ workbench key")
+        SettingsDivider()
+        helpStep(num: "4", title: "Apply", body: "กด Apply (⌘S) เพื่อเขียนสีลง settings.json — ระบบจะ backup ของเดิมไว้อัตโนมัติ")
+      }
+
+      SettingsGroup(title: "Keyboard Shortcuts") {
+        shortcutRow(keys: "⌘ S", label: "Apply theme")
+        SettingsDivider()
+        shortcutRow(keys: "⌘ B", label: "Backup ทุก target")
+        SettingsDivider()
+        shortcutRow(keys: "⌘ R", label: "Reload จาก disk")
+        SettingsDivider()
+        shortcutRow(keys: "⌥⌘ I", label: "Toggle Inspector")
+        SettingsDivider()
+        shortcutRow(keys: "⌘ ,", label: "เปิด Preferences")
+      }
+
+      SettingsGroup(title: "Safety",
+                    footer: "ทุก action ที่แก้ไฟล์มี backup + confirm modal") {
+        SettingsRow(icon: "shield.fill", tint: .green, title: "Auto-backup ก่อนเขียน",
+                    subtitle: "snapshot settings.json ของทุก target ก่อน apply") { EmptyView() }
+        SettingsDivider()
+        SettingsRow(icon: "checkmark.shield.fill", tint: .green, title: "Brace-balanced validator",
+                    subtitle: "ปฏิเสธการเขียนถ้า JSON ไม่สมดุล — ป้องกันไฟล์เสีย") { EmptyView() }
+        SettingsDivider()
+        SettingsRow(icon: "arrow.uturn.backward.circle.fill", tint: .orange, title: "Restore latest valid backup",
+                    subtitle: "ถ้า settings.json เสียอยู่แล้ว → ปุ่มกู้คืนใน Apply Result") { EmptyView() }
+      }
+    }
+  }
+
+  private func helpStep(num: String, title: String, body: String) -> some View {
+    HStack(alignment: .top, spacing: 12) {
+      ZStack {
+        Circle().fill(theme.accent.opacity(0.18)).frame(width: 26, height: 26)
+        Text(num).font(.system(.callout, design: .rounded).weight(.bold))
+          .foregroundStyle(theme.accent)
+      }
+      VStack(alignment: .leading, spacing: 2) {
+        Text(title).font(.callout.weight(.semibold))
+        Text(body).font(.caption).foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, 14).padding(.vertical, 10)
+  }
+
+  private func shortcutRow(keys: String, label: String) -> some View {
+    HStack(spacing: 12) {
+      Text(label).font(.callout)
+      Spacer()
+      Text(keys)
+        .font(.system(.caption, design: .monospaced).weight(.semibold))
+        .padding(.horizontal, 8).padding(.vertical, 3)
+        .background(theme.surface(0.07), in: RoundedRectangle(cornerRadius: 5))
+        .overlay(RoundedRectangle(cornerRadius: 5).stroke(theme.surface(0.10)))
+    }
+    .padding(.horizontal, 14).padding(.vertical, 10)
+    .frame(minHeight: 40)
+  }
+
+  // MARK: - About Pane
+
+  private var aboutPane: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      // Hero
+      HStack(spacing: 16) {
+        AppMark(colors: model.colors)
+          .frame(width: 64, height: 64)
+        VStack(alignment: .leading, spacing: 3) {
+          Text(AppInfo.name)
+            .font(.system(.title2, design: .rounded).weight(.bold))
+          Text("Native macOS color theme studio for VS Code-family editors")
+            .font(.caption).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+          HStack(spacing: 6) {
+            Text("Version \(AppInfo.version) (Build \(AppInfo.build))")
+              .font(.caption2.weight(.medium))
+              .foregroundStyle(theme.accent)
+              .padding(.horizontal, 6).padding(.vertical, 1)
+              .background(theme.accent.opacity(0.12), in: Capsule())
+            Text("BETA")
+              .font(.system(size: 9, weight: .bold, design: .rounded))
+              .tracking(0.5)
+              .foregroundStyle(theme.warning)
+              .padding(.horizontal, 6).padding(.vertical, 1)
+              .background(theme.warning.opacity(0.15), in: Capsule())
+              .overlay(Capsule().stroke(theme.warning.opacity(0.35)))
+          }
+        }
+        Spacer()
+      }
+      .padding(.bottom, 4)
+
+      SettingsGroup(title: "Version") {
+        SettingsRow(icon: "app.badge.fill", tint: .blue, title: "App Version") {
+          Text("\(AppInfo.version) (\(AppInfo.build))")
+            .font(.system(.callout, design: .monospaced))
+            .foregroundStyle(.secondary)
+            .textSelection(.enabled)
+        }
+        SettingsDivider()
+        SettingsRow(icon: "swift", tint: .orange, title: "Built with") {
+          Text("Swift 5.9+ · SwiftUI")
+            .font(.callout)
+            .foregroundStyle(.secondary)
+        }
+        SettingsDivider()
+        SettingsRow(icon: "applelogo", tint: .gray, title: "Minimum macOS") {
+          Text("13.0 (Ventura)")
+            .font(.callout)
+            .foregroundStyle(.secondary)
+        }
+        SettingsDivider()
+        SettingsRow(icon: "desktopcomputer", tint: .indigo, title: "Running on") {
+          Text(AppInfo.systemVersion)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+        }
+      }
+
+      SettingsGroup(title: "Credits",
+                    footer: "Inspired by VS Code, Linear, Notion, Vercel, IBM Carbon, Arc, Stripe — and the dev community's many lovingly-crafted color themes.") {
+        SettingsRow(icon: "heart.fill", tint: .pink, title: "Made with care",
+                    subtitle: "for developers who care about their editor's vibe") { EmptyView() }
+      }
+
+      Text(AppInfo.copyright)
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.top, 8)
     }
   }
 
@@ -2294,7 +2465,7 @@ struct TargetRow: View {
       set: { model.targetApplyStates[target.id] = $0 }
     )) {
       HStack(spacing: 10) {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 2) {
           HStack(spacing: 6) {
             Text(target.name).font(.callout.weight(.semibold))
             if target.isCustom {
@@ -2304,21 +2475,24 @@ struct TargetRow: View {
               tagPill("OVERRIDDEN", color: theme.accent)
             }
           }
+          // Single subtitle line — short metadata only. Full path lives
+          // in the help() tooltip and the ••• menu's "Show Path" action,
+          // so the row stays clean and minimal.
           if !target.isCustom {
-            Text(target.appSupportName + " · " + target.supportLevel)
+            Text(target.supportLevel)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          } else {
+            Text("Custom path")
               .font(.caption)
               .foregroundStyle(.secondary)
           }
-          Text(target.settingsURL.path)
-            .font(.system(size: 10, design: .monospaced))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .truncationMode(.middle)
         }
         Spacer(minLength: 8)
         statusIndicator(target.detectionStatus)
         actionMenu
       }
+      .help(target.settingsURL.path)
     }
     .toggleStyle(.checkbox)
     .padding(.vertical, 4)
@@ -2382,6 +2556,19 @@ struct TargetRow: View {
   @ViewBuilder
   private var actionMenu: some View {
     Menu {
+      // First section — read-only info accessible without cluttering the row
+      Section {
+        Button {
+          NSPasteboard.general.clearContents()
+          NSPasteboard.general.setString(target.settingsURL.path, forType: .string)
+          model.status = "Copied path: \(target.settingsURL.lastPathComponent)"
+        } label: { Label("คัดลอก path", systemImage: "doc.on.doc") }
+      } header: {
+        Text(target.settingsURL.path)
+          .font(.system(size: 10, design: .monospaced))
+      }
+
+      // Second section — actions
       if target.isCustom {
         Button {
           showEditSheet = true
