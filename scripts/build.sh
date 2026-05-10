@@ -10,6 +10,7 @@ rm -rf "$ROOT/build/Workbench Theme Studio.app" 2>/dev/null || true
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 swiftc -O -parse-as-library \
+  "$ROOT/src/UpdateCheck.swift" \
   "$ROOT/src/CursorThemeCustomizer.swift" \
   "$ROOT/src/ThemeCore.swift" \
   "$ROOT/src/Views.swift" \

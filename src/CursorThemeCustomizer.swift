@@ -1136,6 +1136,9 @@ final class ThemeModel: ObservableObject {
   @Published var showPreferences: Bool = false
   @Published var showInspector: Bool = true
 
+  /// Set when GitHub latest release is newer than this build; shown as a Thai confirmation dialog.
+  @Published var pendingUpdateOffer: AppUpdateOffer? = nil
+
   @Published var document = ThemeDocument()
   @Published var targetWorkbenchColors: [String: String] = [:]
   @Published var userPresets: [UserPresetSpec] = []
@@ -2118,6 +2121,15 @@ final class ThemeModel: ObservableObject {
     } catch {
       status = "Restore failed: \(error.localizedDescription)"
       return false
+    }
+  }
+
+  /// After a short delay, checks GitHub Releases quietly; on success sets `pendingUpdateOffer`.
+  func scheduleSilentUpdateCheck() {
+    Task { @MainActor in
+      try? await Task.sleep(nanoseconds: 1_600_000_000)
+      let offer = await UpdateCheck.fetchUpdateOfferIfNeeded()
+      self.pendingUpdateOffer = offer
     }
   }
 }

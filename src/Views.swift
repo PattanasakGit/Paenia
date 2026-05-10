@@ -57,6 +57,39 @@ struct ContentView: View {
     .tint(model.appAccent)
     .environment(\.themeChrome, ThemeChrome.from(model))
     .animation(.easeInOut(duration: 0.25), value: model.appColorScheme)
+    .onAppear {
+      model.scheduleSilentUpdateCheck()
+    }
+    .confirmationDialog(
+      "มีเวอร์ชันใหม่",
+      isPresented: Binding(
+        get: { model.pendingUpdateOffer != nil },
+        set: { if !$0 { model.pendingUpdateOffer = nil } }
+      ),
+      titleVisibility: .visible
+    ) {
+      Button("ดาวน์โหลด") {
+        if let o = model.pendingUpdateOffer {
+          NSWorkspace.shared.open(o.dmgDownloadURL ?? o.releasePageURL)
+        }
+        model.pendingUpdateOffer = nil
+      }
+      Button("ไม่เตือนรุ่นนี้", role: .destructive) {
+        if let o = model.pendingUpdateOffer {
+          UpdateCheck.skipReleaseTag(o.remoteTag)
+        }
+        model.pendingUpdateOffer = nil
+      }
+      Button("ภายหลัง", role: .cancel) {
+        model.pendingUpdateOffer = nil
+      }
+    } message: {
+      Text(
+        model.pendingUpdateOffer.map { offer in
+          "Paenia \(offer.remoteVersion) พร้อมดาวน์โหลด — คุณใช้ \(offer.localVersion) อยู่"
+        } ?? ""
+      )
+    }
   }
 
   /// Icon-only toolbar button. Description shows on hover via `.help(...)` on the caller.
@@ -1964,6 +1997,11 @@ struct PreferencesSheet: View {
   @Environment(\.themeChrome) private var theme
   @State private var selection: PrefCategory = .targets
   @State private var showAddCustom = false
+  @State private var isCheckingUpdate = false
+  @State private var manualUpdateOffer: AppUpdateOffer?
+  @State private var showUpToDateAlert = false
+  @State private var upToDateDetail = ""
+  @State private var showUpdateCheckFailed = false
 
   var body: some View {
     HStack(spacing: 0) {
@@ -2005,6 +2043,67 @@ struct PreferencesSheet: View {
         onSave: { _, _ in showAddCustom = false },
         onCancel: { showAddCustom = false }
       )
+    }
+    .confirmationDialog(
+      "มีเวอร์ชันใหม่",
+      isPresented: Binding(
+        get: { manualUpdateOffer != nil },
+        set: { if !$0 { manualUpdateOffer = nil } }
+      ),
+      titleVisibility: .visible
+    ) {
+      Button("ดาวน์โหลด") {
+        if let o = manualUpdateOffer {
+          NSWorkspace.shared.open(o.dmgDownloadURL ?? o.releasePageURL)
+        }
+        manualUpdateOffer = nil
+      }
+      Button("ไม่เตือนรุ่นนี้", role: .destructive) {
+        if let o = manualUpdateOffer {
+          UpdateCheck.skipReleaseTag(o.remoteTag)
+        }
+        manualUpdateOffer = nil
+      }
+      Button("ภายหลัง", role: .cancel) {
+        manualUpdateOffer = nil
+      }
+    } message: {
+      Text(
+        manualUpdateOffer.map { offer in
+          "Paenia \(offer.remoteVersion) พร้อมดาวน์โหลด — คุณใช้ \(offer.localVersion) อยู่"
+        } ?? ""
+      )
+    }
+    .alert("เวอร์ชันล่าสุด", isPresented: $showUpToDateAlert) {
+      Button("ตกลง", role: .cancel) {}
+    } message: {
+      Text(upToDateDetail)
+    }
+    .alert("ตรวจสอบไม่สำเร็จ", isPresented: $showUpdateCheckFailed) {
+      Button("ตกลง", role: .cancel) {}
+    } message: {
+      Text("เชื่อมต่อ GitHub ไม่ได้ — ลองใหม่ภายหลัง")
+    }
+  }
+
+  private func runManualUpdateCheck() {
+    guard !isCheckingUpdate else { return }
+    isCheckingUpdate = true
+    Task {
+      let outcome = await UpdateCheck.manualCheck()
+      await MainActor.run {
+        isCheckingUpdate = false
+        switch outcome {
+        case .upToDate(let v):
+          upToDateDetail =
+            "ล่าสุดบนเซิร์ฟเวอร์คือ v\(v) — ตรงกับแอปนี้แล้ว (คุณใช้ v\(AppInfo.version))"
+          showUpToDateAlert = true
+        case .updateAvailable(let offer):
+          manualUpdateOffer = offer
+        case .failed:
+          showUpdateCheckFailed = true
+        }
+      }
     }
   }
 
@@ -2314,6 +2413,38 @@ struct PreferencesSheet: View {
             .font(.callout)
             .foregroundStyle(.secondary)
         }
+      }
+
+      SettingsGroup(
+        title: "อัปเดต",
+        footer: "เปรียบเทียบกับ release ล่าสุดบน GitHub — แอปจะไม่ดาวน์โหลดหรือติดตั้งแทนคุณ"
+      ) {
+        Button {
+          runManualUpdateCheck()
+        } label: {
+          HStack(spacing: 12) {
+            IconTile(symbol: "arrow.down.circle", tint: theme.accent, size: 26)
+            VStack(alignment: .leading, spacing: 2) {
+              Text("ตรวจสอบอัปเดต")
+                .font(.system(.callout, design: .rounded).weight(.semibold))
+                .foregroundStyle(.primary)
+              Text("เชื่อมต่อ GitHub แล้วเปรียบเวอร์ชัน")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            if isCheckingUpdate {
+              ProgressView()
+                .scaleEffect(0.88)
+                .controlSize(.small)
+            }
+          }
+          .padding(.horizontal, 12).padding(.vertical, 10)
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isCheckingUpdate)
+        .help("ตรวจสอบว่ามีเวอร์ชันใหม่บน GitHub หรือไม่")
       }
 
       SettingsGroup(title: "Credits",

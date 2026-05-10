@@ -6,7 +6,7 @@
 ./scripts/build.sh
 ```
 
-Compiles all three Swift sources together (`CursorThemeCustomizer.swift`, `ThemeCore.swift`, `Views.swift`) and bundles `theme.json`, `Info.plist`, and the icon. Output:
+Compiles four Swift sources together (`UpdateCheck.swift`, `CursorThemeCustomizer.swift`, `ThemeCore.swift`, `Views.swift`) and bundles `theme.json`, `Info.plist`, and the icon. Output:
 
 ```text
 build/Paenia.app
@@ -27,6 +27,15 @@ open "$HOME/Applications/Paenia.app"
 ```
 
 The Swift binary is the only runtime — there is no Node.js step, no daemon, no helper.
+
+## Update checks (GitHub)
+
+`UpdateCheck.swift` calls `GET https://api.github.com/repos/PattanasakGit/Paenia/releases/latest` with a `User-Agent` of `Paenia/<version> (macOS)`.
+
+- **After launch:** `ThemeModel.scheduleSilentUpdateCheck()` waits ~1.6s, then fetches; if the release tag is newer than `CFBundleShortVersionString` and the user has not silenced that tag (`UserDefaults` key `PaeniaUpdateSkippedReleaseTag`), `ContentView` shows a Thai `confirmationDialog` with download / dismiss / “don’t remind for this tag”.
+- **Settings → About → อัปเดต → ตรวจสอบอัปเดต:** `UpdateCheck.manualCheck()` runs the same fetch but **ignores** the skip preference so a newer release is always offered; if already up to date or the request fails, an `alert` explains.
+
+The app does not install updates — it only opens the `.dmg` or release page URL.
 
 ## Verify Bundle
 
@@ -91,3 +100,4 @@ The toolbar **สำรอง (Backup)** button is an explicit user-requested sn
 - Save palette as preset → appears in MY PRESETS section of popover.
 - Restore a backup → confirm sheet, then file replaced and target reloaded.
 - Switch from a dark to a light preset → entire app UI flips light, text stays readable.
+- Settings → About → ตรวจสอบอัปเดต → expect up-to-date alert, update dialog when a newer GitHub release exists, or failure alert when offline / API error.

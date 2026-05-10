@@ -32,6 +32,7 @@ SwiftUI App ──edit──▶ theme.json ──ThemeApplier──▶ each targ
 - **Custom targets + path overrides** — pick any settings.json with 3-tier path validation
 - **Apply confirmation + result modal** — confirm targets before writing, success/partial/failure feedback after
 - **Thai tooltips and toolbar labels** — every button has a short label and a Thai description on hover
+- **Update hint** — shortly after launch, the app quietly asks GitHub for the latest release; if it is newer than your build, a Thai dialog offers the download link (or you can silence that release tag). You can also run **Settings → About → ตรวจสอบอัปเดต** anytime.
 
 ## Installed Locations
 

@@ -5,6 +5,7 @@
 - macOS 13 or newer.
 - Xcode Command Line Tools or Xcode with `swiftc`.
 - No Node.js dependency. No npm packages.
+- Outbound HTTPS to `api.github.com` when using automatic or manual update checks (optional; failures are silent or shown only in the manual-check alert).
 
 ## Files
 
