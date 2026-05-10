@@ -46,8 +46,10 @@ SwiftUI App ──edit──▶ theme.json ──ThemeApplier──▶ each targ
 ```sh
 ./scripts/build.sh      # build into build/Paenia.app
 ./scripts/install.sh    # build + copy into ~/Applications and seed theme.json
-./scripts/make_dmg.sh   # build + create build/Paenia-<version>-macos.dmg (includes Applications alias)
+./scripts/make_dmg.sh   # build + DMG with styled window (background + icon layout via Finder)
 ```
+
+`make_dmg.sh` writes a pastel background (`scripts/render_dmg_background.swift`), mounts a read-write image, runs AppleScript to set the Finder window size and icon positions, then compresses to UDZO. The `.background` folder is hidden on the volume.
 
 The DMG is **not** code-signed or notarized. First-time open: right-click `Paenia.app` → **Open**, or allow under **System Settings → Privacy & Security**.
 
@@ -55,7 +57,7 @@ To expose the same `.dmg` on **PaeniaWeb**, set `githubRepo` / `releaseTag` / `d
 
 ### Publish the `.dmg` on GitHub
 
-1. Commit and push the Paenia repo, then create a **tag** matching `releaseTag` (e.g. `v0.0.95`).
+1. Commit and push the Paenia repo, then create a **tag** matching `releaseTag` (e.g. `v0.0.95-beta` for a beta build).
 2. **Releases → Draft a release** → choose that tag → upload `build/Paenia-<version>-macos.dmg` from `./scripts/make_dmg.sh`.
 3. Publish the release. The site link is `https://github.com/<owner>/<repo>/releases/download/<tag>/<dmgFileName>`.
 4. If the DMG bytes change, run `shasum -a 256` on the new file and update `PaeniaWeb/lib/download.ts` (`sha256`, and `fileSize` if needed).

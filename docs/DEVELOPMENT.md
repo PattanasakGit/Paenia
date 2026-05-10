@@ -12,6 +12,12 @@ Compiles four Swift sources together (`UpdateCheck.swift`, `CursorThemeCustomize
 build/Paenia.app
 ```
 
+Current beta bundle version: `0.0.95-beta`.
+
+### Disk image (`scripts/make_dmg.sh`)
+
+Builds the app, renders `640×360` `background.png` (Swift + AppKit), stages `Paenia.app`, `Applications` alias, and `.background/`. Creates a **UDRW** image, **mounts** it, runs **AppleScript** (Finder) to apply the background picture (via POSIX path), icon positions, and window bounds, then **converts** to **UDZO** `build/Paenia-<version>-macos.dmg`.
+
 ## Install
 
 ```sh
