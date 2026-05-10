@@ -45,7 +45,19 @@ SwiftUI App ──edit──▶ theme.json ──ThemeApplier──▶ each targ
 ```sh
 ./scripts/build.sh      # build into build/Paenia.app
 ./scripts/install.sh    # build + copy into ~/Applications and seed theme.json
+./scripts/make_dmg.sh   # build + create build/Paenia-<version>-macos.dmg (includes Applications alias)
 ```
+
+The DMG is **not** code-signed or notarized. First-time open: right-click `Paenia.app` → **Open**, or allow under **System Settings → Privacy & Security**.
+
+To expose the same `.dmg` on **PaeniaWeb**, set `githubRepo` / `releaseTag` / `dmgFileName` / checksum in `PaeniaWeb/lib/download.ts`, or override with `NEXT_PUBLIC_PAENIA_DMG_URL` — see `PaeniaWeb/.env.example`.
+
+### Publish the `.dmg` on GitHub
+
+1. Commit and push the Paenia repo, then create a **tag** matching `releaseTag` (e.g. `v0.0.95`).
+2. **Releases → Draft a release** → choose that tag → upload `build/Paenia-<version>-macos.dmg` from `./scripts/make_dmg.sh`.
+3. Publish the release. The site link is `https://github.com/<owner>/<repo>/releases/download/<tag>/<dmgFileName>`.
+4. If the DMG bytes change, run `shasum -a 256` on the new file and update `PaeniaWeb/lib/download.ts` (`sha256`, and `fileSize` if needed).
 
 The installer only seeds `theme.json` if it does not already exist; existing user state is preserved across reinstalls.
 
