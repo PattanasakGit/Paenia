@@ -2252,7 +2252,7 @@ struct PreferencesSheet: View {
       }
       Spacer()
       Button {
-        model.pendingOriginalRestore = info
+        model.requestOriginalRestoreFromPreferences(info)
       } label: {
         HStack(spacing: 5) {
           Image(systemName: "arrow.uturn.backward.circle.fill")
@@ -2896,7 +2896,7 @@ struct CustomTargetEditor: View {
             TextField("/path/to/User/settings.json", text: $path)
               .textFieldStyle(.roundedBorder)
               .font(.system(.caption, design: .monospaced))
-              .onChange(of: path) { _, _ in revalidate() }
+              .onChange(of: path) { _ in revalidate() }
             Button("เลือกไฟล์…") { pickFile() }
           }
         }

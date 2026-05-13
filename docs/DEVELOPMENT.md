@@ -12,6 +12,8 @@ Compiles four Swift sources together (`UpdateCheck.swift`, `CursorThemeCustomize
 build/Paenia.app
 ```
 
+`scripts/build.sh` pins the Swift deployment target to macOS 13.0 (`-target <arch>-apple-macos13.0`) so the Mach-O minimum OS matches `LSMinimumSystemVersion` in `Info.plist` instead of inheriting the latest SDK default.
+
 Current beta bundle version: `0.0.95-beta`.
 
 ### Disk image (`scripts/make_dmg.sh`)
@@ -105,5 +107,6 @@ The toolbar **สำรอง (Backup)** button is an explicit user-requested sn
 - Add a custom target with a system path → blocked with reason.
 - Save palette as preset → appears in MY PRESETS section of popover.
 - Restore a backup → confirm sheet, then file replaced and target reloaded.
+- Settings → Backups → Restore Original → Settings closes first, then the destructive confirmation sheet appears.
 - Switch from a dark to a light preset → entire app UI flips light, text stays readable.
 - Settings → About → ตรวจสอบอัปเดต → expect up-to-date alert, update dialog when a newer GitHub release exists, or failure alert when offline / API error.

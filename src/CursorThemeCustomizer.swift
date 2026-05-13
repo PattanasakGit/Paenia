@@ -1162,6 +1162,16 @@ final class ThemeModel: ObservableObject {
   @Published var resetResult: ResetOutcome? = nil
   @Published var originalRestoreResult: OriginalRestoreOutcome? = nil
 
+  func requestOriginalRestoreFromPreferences(_ info: OriginalBackupInfo) {
+    pendingOriginalRestore = nil
+    showPreferences = false
+
+    Task { @MainActor in
+      try? await Task.sleep(nanoseconds: 180_000_000)
+      pendingOriginalRestore = info
+    }
+  }
+
   enum OriginalRestoreOutcome: Identifiable {
     case success(target: String, date: String)
     case failure(target: String, message: String)
