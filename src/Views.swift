@@ -1387,7 +1387,10 @@ struct InspectorView: View {
       ScrollView {
         VStack(alignment: .leading, spacing: 18) {
           section("LIVE PREVIEW · \(model.activeTarget.name)") {
-            IDEPreview(model: model)
+            ComprehensiveIDEPreview(model: model)
+          }
+          section("SECTION PREVIEW · \(currentCategory.title)") {
+            SectionDynamicPreview(model: model)
           }
           section("PALETTE") {
             PaletteGrid(model: model)
@@ -1421,6 +1424,10 @@ struct InspectorView: View {
         .foregroundStyle(.secondary)
       content()
     }
+  }
+
+  private var currentCategory: ColorCategory {
+    model.mode == .base ? model.selectedBaseCategory : model.selectedDetailCategory
   }
 
   // MARK: Bottom action cluster
@@ -1507,6 +1514,615 @@ struct InspectorView: View {
   }
 }
 
+// MARK: - Comprehensive Preview
+
+struct ComprehensiveIDEPreview: View {
+  @ObservedObject var model: ThemeModel
+
+  private func c(_ key: String, palette: String? = nil, literal: String = "#000000") -> Color {
+    Color(nsColor: nsColor(from: model.previewHex(key, palette: palette, literal: literal)))
+  }
+
+  private func p(_ key: String, _ fallback: String) -> Color {
+    Color(nsColor: nsColor(from: model.colors[key] ?? fallback))
+  }
+
+  var body: some View {
+    VStack(spacing: 8) {
+      IDEPreview(model: model)
+
+      LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 2), spacing: 6) {
+        previewTile("Command", icon: "command", background: c("quickInput.background", palette: "bg2", literal: "#17102A")) {
+          VStack(alignment: .leading, spacing: 4) {
+            previewSearchRow
+            previewListRow("Open Settings", active: true)
+            previewListRow("Toggle Terminal", active: false)
+          }
+        }
+
+        previewTile("Buttons", icon: "button.programmable", background: c("editorWidget.background", palette: "bg2", literal: "#17102A")) {
+          HStack(spacing: 5) {
+            previewButton("Apply", bg: c("button.background", palette: "accent", literal: "#FF4FD8"), fg: c("button.foreground", palette: "bg0", literal: "#08060F"))
+            previewButton("Hover", bg: c("button.hoverBackground", palette: "accentSoft", literal: "#FF9BE8"), fg: c("button.foreground", palette: "bg0", literal: "#08060F"))
+          }
+          toolbarStrip
+        }
+
+        previewTile("Terminal", icon: "terminal", background: c("panel.background", palette: "bg1", literal: "#100B1F")) {
+          terminalLine("$ pnpm dev", color: c("terminal.foreground", palette: "fg1", literal: "#E9D7FF"))
+          terminalLine("ready in 642ms", color: p("green", "#5CFF95"))
+          Rectangle()
+            .fill(c("terminalCursor.foreground", palette: "accent", literal: "#FF4FD8"))
+            .frame(width: 6, height: 10)
+        }
+
+        previewTile("States", icon: "point.3.connected.trianglepath.dotted", background: c("sideBar.background", palette: "bg1", literal: "#100B1F")) {
+          gitDot("M", c("gitDecoration.modifiedResourceForeground", palette: "accent", literal: "#FF4FD8"))
+          gitDot("A", c("gitDecoration.addedResourceForeground", palette: "green", literal: "#5CFF95"))
+          gitDot("D", c("gitDecoration.deletedResourceForeground", palette: "red", literal: "#FF3864"))
+          scrollbarSample
+        }
+      }
+    }
+    .help("Preview หลัก — แสดง workbench, editor, widgets, terminal, buttons และ state สำคัญจากค่าสีปัจจุบัน")
+  }
+
+  private var previewSearchRow: some View {
+    HStack(spacing: 4) {
+      Image(systemName: "magnifyingglass")
+        .font(.system(size: 7, weight: .semibold))
+      Text("> theme")
+        .font(.system(size: 8, design: .monospaced))
+      Spacer(minLength: 0)
+    }
+    .foregroundStyle(c("input.foreground", palette: "fg0", literal: "#FFF7FF"))
+    .padding(.horizontal, 6).padding(.vertical, 4)
+    .background(c("input.background", palette: "bg2", literal: "#17102A"), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 5, style: .continuous)
+        .stroke(c("input.border", palette: "border", literal: "#9D4EDD"), lineWidth: 0.8)
+    )
+  }
+
+  private func previewListRow(_ title: String, active: Bool) -> some View {
+    Text(title)
+      .font(.system(size: 8, weight: active ? .semibold : .regular, design: .rounded))
+      .foregroundStyle(active ? c("quickInputList.focusForeground", palette: "accentSoft", literal: "#FF9BE8") : c("sideBar.foreground", palette: "fg1", literal: "#E9D7FF").opacity(0.72))
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.horizontal, 6).padding(.vertical, 3)
+      .background(active ? c("quickInputList.focusBackground", palette: "bg4", literal: "#34205F") : Color.clear, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+  }
+
+  private func previewButton(_ text: String, bg: Color, fg: Color) -> some View {
+    Text(text)
+      .font(.system(size: 8, weight: .bold, design: .rounded))
+      .foregroundStyle(fg)
+      .lineLimit(1)
+      .minimumScaleFactor(0.8)
+      .padding(.horizontal, 7).padding(.vertical, 4)
+      .background(bg, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+  }
+
+  private var toolbarStrip: some View {
+    HStack(spacing: 4) {
+      Image(systemName: "paintbrush.fill")
+      Image(systemName: "slider.horizontal.3")
+      Image(systemName: "checkmark.circle.fill")
+    }
+    .font(.system(size: 8, weight: .semibold))
+    .foregroundStyle(c("list.activeSelectionForeground", palette: "accentSoft", literal: "#FF9BE8"))
+    .padding(.horizontal, 6).padding(.vertical, 4)
+    .background(c("toolbar.activeBackground", palette: "bg4", literal: "#34205F"), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+  }
+
+  private func terminalLine(_ text: String, color: Color) -> some View {
+    Text(text)
+      .font(.system(size: 8, design: .monospaced))
+      .foregroundStyle(color)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .lineLimit(1)
+  }
+
+  private func gitDot(_ label: String, _ color: Color) -> some View {
+    HStack(spacing: 5) {
+      Circle().fill(color).frame(width: 6, height: 6)
+      Text(label)
+        .font(.system(size: 8, weight: .bold, design: .monospaced))
+        .foregroundStyle(color)
+      Spacer(minLength: 0)
+    }
+  }
+
+  private var scrollbarSample: some View {
+    HStack(spacing: 4) {
+      Capsule().fill(c("scrollbarSlider.background", palette: "overlayMid", literal: "#FFFFFF10")).frame(width: 36, height: 5)
+      Capsule().fill(c("scrollbarSlider.hoverBackground", palette: "overlayHigh", literal: "#FFFFFF18")).frame(width: 28, height: 5)
+      Capsule().fill(c("scrollbarSlider.activeBackground", palette: "overlayActive", literal: "#FFFFFF22")).frame(width: 20, height: 5)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private func previewTile<Content: View>(
+    _ title: String,
+    icon: String,
+    background: Color,
+    @ViewBuilder content: () -> Content
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      HStack(spacing: 5) {
+        Image(systemName: icon)
+          .font(.system(size: 8, weight: .semibold))
+        Text(title)
+          .font(.system(size: 8, weight: .bold, design: .rounded))
+        Spacer(minLength: 0)
+      }
+      .foregroundStyle(c("sideBarTitle.foreground", palette: "fg0", literal: "#FFF7FF").opacity(0.82))
+      content()
+      Spacer(minLength: 0)
+    }
+    .padding(8)
+    .frame(height: 86, alignment: .topLeading)
+    .background(background, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 8, style: .continuous)
+        .stroke(c("widget.border", palette: "border", literal: "#9D4EDD").opacity(0.45), lineWidth: 0.8)
+    )
+  }
+}
+
+struct SectionDynamicPreview: View {
+  @ObservedObject var model: ThemeModel
+
+  private var category: ColorCategory {
+    model.mode == .base ? model.selectedBaseCategory : model.selectedDetailCategory
+  }
+
+  private var categoryID: String { category.id }
+
+  private func c(_ key: String, palette: String? = nil, literal: String = "#000000") -> Color {
+    Color(nsColor: nsColor(from: model.previewHex(key, palette: palette, literal: literal)))
+  }
+
+  private func p(_ key: String, _ fallback: String) -> Color {
+    Color(nsColor: nsColor(from: model.colors[key] ?? fallback))
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(spacing: 8) {
+        Image(systemName: category.symbol)
+          .font(.system(size: 12, weight: .semibold))
+        VStack(alignment: .leading, spacing: 1) {
+          Text(category.title)
+            .font(.system(size: 12, weight: .semibold, design: .rounded))
+          Text(category.subtitle)
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
+        Spacer(minLength: 0)
+        Text("\(category.keys.count)")
+          .font(.system(size: 10, weight: .bold, design: .monospaced))
+          .foregroundStyle(.secondary)
+      }
+
+      previewContent
+    }
+    .padding(12)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(c("editorWidget.background", palette: "bg2", literal: "#17102A"), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .stroke(c("editorWidget.border", palette: "border", literal: "#9D4EDD").opacity(0.5), lineWidth: 0.9)
+    )
+    .help("Section Preview — เปลี่ยนตามหมวดสีที่กำลังแก้ เพื่อดูว่าสีในหมวดนี้ไปใช้ตรงไหน")
+  }
+
+  @ViewBuilder
+  private var previewContent: some View {
+    switch categoryID {
+    case "surfaces":
+      surfacesPreview
+    case "sidebar":
+      sidebarPreview
+    case "tabs":
+      tabsPreview
+    case "borders":
+      bordersPreview
+    case "lists":
+      listsPreview
+    case "inputs":
+      inputsPreview
+    case "editor":
+      editorDetailsPreview
+    case "buttons":
+      buttonsPreview
+    case "git":
+      gitPreview
+    case "scrollbar", "overlays":
+      scrollbarPreview
+    case "terminal":
+      terminalPreview
+    case "status":
+      statusPreview
+    case "communication":
+      communicationPreview
+    case "text":
+      textPreview
+    case "accent":
+      accentPreview
+    case "syntax":
+      syntaxPreview
+    default:
+      otherPreview
+    }
+  }
+
+  private var surfacesPreview: some View {
+    HStack(spacing: 6) {
+      surfaceBlock("Editor", c("editor.background", palette: "bg0", literal: "#08060F"))
+      surfaceBlock("Sidebar", c("sideBar.background", palette: "bg1", literal: "#100B1F"))
+      surfaceBlock("Panel", c("panel.background", palette: "bg1", literal: "#100B1F"))
+      surfaceBlock("Widget", c("editorWidget.background", palette: "bg2", literal: "#17102A"))
+    }
+  }
+
+  private var sidebarPreview: some View {
+    HStack(spacing: 0) {
+      VStack(spacing: 8) {
+        Image(systemName: "doc.text.fill")
+        Image(systemName: "magnifyingglass")
+        Image(systemName: "sourcecontrol")
+      }
+      .font(.system(size: 10, weight: .semibold))
+      .foregroundStyle(c("activityBar.activeBorder", palette: "accent", literal: "#FF4FD8"))
+      .frame(width: 34, height: 92)
+      .background(c("activityBar.background", palette: "bg0", literal: "#08060F"))
+
+      VStack(alignment: .leading, spacing: 5) {
+        Text("EXPLORER")
+          .font(.system(size: 8, weight: .bold))
+          .foregroundStyle(c("sideBarSectionHeader.foreground", palette: "fg2", literal: "#B79CFF"))
+        listChip("theme.json", active: true)
+        listChip("Views.swift", active: false)
+        listChip("README.md", active: false)
+      }
+      .padding(8)
+      .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
+      .background(c("sideBar.background", palette: "bg1", literal: "#100B1F"))
+    }
+    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+  }
+
+  private var tabsPreview: some View {
+    VStack(spacing: 0) {
+      HStack(spacing: 0) {
+        tabChip("App.tsx", active: true, modified: false)
+        tabChip("theme.json", active: false, modified: true)
+        tabChip("README.md", active: false, modified: false)
+        Rectangle().fill(c("editorGroupHeader.tabsBackground", palette: "bg0", literal: "#08060F"))
+      }
+      .frame(height: 28)
+      Text("Title bar + editor group header")
+        .font(.system(size: 9, design: .monospaced))
+        .foregroundStyle(c("titleBar.activeForeground", palette: "fg1", literal: "#E9D7FF").opacity(0.8))
+        .frame(maxWidth: .infinity, minHeight: 42)
+        .background(c("editor.background", palette: "bg0", literal: "#08060F"))
+    }
+    .background(c("titleBar.activeBackground", palette: "bg0", literal: "#08060F"))
+    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+  }
+
+  private var bordersPreview: some View {
+    VStack(spacing: 8) {
+      HStack(spacing: 8) {
+        borderBox("focus", c("focusBorder", palette: "accent", literal: "#FF4FD8"))
+        borderBox("panel", c("panel.border", palette: "border", literal: "#9D4EDD"))
+        borderBox("tab", c("tab.border", palette: "bg3", literal: "#241642"))
+      }
+      Rectangle()
+        .fill(c("sash.hoverBorder", palette: "accent", literal: "#FF4FD8"))
+        .frame(height: 3)
+        .clipShape(Capsule())
+    }
+  }
+
+  private var listsPreview: some View {
+    VStack(spacing: 5) {
+      listChip("active selection", active: true)
+      listChip("hover row", active: false, hover: true)
+      listChip("inactive selection", active: false, inactive: true)
+    }
+  }
+
+  private var inputsPreview: some View {
+    VStack(spacing: 7) {
+      HStack(spacing: 6) {
+        inputBox("Input", bg: c("input.background", palette: "bg2", literal: "#17102A"), border: c("input.border", palette: "border", literal: "#9D4EDD"))
+        inputBox("Dropdown", bg: c("dropdown.background", palette: "bg2", literal: "#17102A"), border: c("commandCenter.border", palette: "border", literal: "#9D4EDD"))
+      }
+      VStack(spacing: 4) {
+        Text("> quick input")
+          .font(.system(size: 9, design: .monospaced))
+          .frame(maxWidth: .infinity, alignment: .leading)
+        listChip("focused command", active: true)
+      }
+      .padding(7)
+      .background(c("quickInput.background", palette: "bg2", literal: "#17102A"), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+    }
+  }
+
+  private var editorDetailsPreview: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      editorLine("12", "const theme = preview();", active: false)
+      editorLine("13", "return selectedColor;", active: true)
+      editorLine("14", "findMatch + selection", active: false, selection: true)
+    }
+    .padding(.vertical, 5)
+    .background(c("editor.background", palette: "bg0", literal: "#08060F"), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+  }
+
+  private var buttonsPreview: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 7) {
+        buttonChip("Button", c("button.background", palette: "accent", literal: "#FF4FD8"))
+        buttonChip("Hover", c("button.hoverBackground", palette: "accentSoft", literal: "#FF9BE8"))
+        buttonChip("Ext", c("extensionButton.background", palette: "accent", literal: "#FF4FD8"))
+      }
+      HStack(spacing: 5) {
+        Image(systemName: "paintbrush.fill")
+        Text("Toolbar active")
+        Spacer(minLength: 0)
+      }
+      .font(.system(size: 9, weight: .semibold))
+      .padding(7)
+      .background(c("toolbar.activeBackground", palette: "bg4", literal: "#34205F"), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+    }
+  }
+
+  private var gitPreview: some View {
+    VStack(spacing: 5) {
+      gitRow("modified.ts", "M", c("gitDecoration.modifiedResourceForeground", palette: "accent", literal: "#FF4FD8"))
+      gitRow("added.swift", "A", c("gitDecoration.addedResourceForeground", palette: "green", literal: "#5CFF95"))
+      gitRow("deleted.json", "D", c("gitDecoration.deletedResourceForeground", palette: "red", literal: "#FF3864"))
+      gitRow("conflict.md", "C", c("gitDecoration.conflictingResourceForeground", palette: "purple", literal: "#C77DFF"))
+    }
+  }
+
+  private var scrollbarPreview: some View {
+    VStack(spacing: 10) {
+      scrollRow("normal", c("scrollbarSlider.background", palette: "overlayMid", literal: "#FFFFFF10"))
+      scrollRow("hover", c("scrollbarSlider.hoverBackground", palette: "overlayHigh", literal: "#FFFFFF18"))
+      scrollRow("active", c("scrollbarSlider.activeBackground", palette: "overlayActive", literal: "#FFFFFF22"))
+    }
+  }
+
+  private var terminalPreview: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      terminalText("$ swiftc Views.swift", c("terminal.foreground", palette: "fg1", literal: "#E9D7FF"))
+      terminalText("Build started", p("blue", "#00D4FF"))
+      HStack(spacing: 3) {
+        terminalText("Ready", p("green", "#5CFF95"))
+        Rectangle().fill(c("terminalCursor.foreground", palette: "accent", literal: "#FF4FD8")).frame(width: 7, height: 11)
+      }
+    }
+    .padding(9)
+    .background(c("terminal.background", literal: "#090B0C"), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(c("panel.border", palette: "border", literal: "#9D4EDD").opacity(0.7)))
+  }
+
+  private var statusPreview: some View {
+    HStack(spacing: 0) {
+      Text("main")
+        .font(.system(size: 10, weight: .bold, design: .rounded))
+        .padding(.horizontal, 10)
+        .frame(height: 32)
+        .background(c("statusBarItem.remoteBackground", palette: "accent", literal: "#FF4FD8"))
+        .foregroundStyle(c("statusBarItem.remoteForeground", palette: "bg0", literal: "#08060F"))
+      Spacer(minLength: 0)
+      Text("TSX  UTF-8  LF")
+        .font(.system(size: 10, weight: .semibold, design: .rounded))
+        .padding(.trailing, 10)
+        .foregroundStyle(c("sideBar.foreground", palette: "fg1", literal: "#E9D7FF"))
+    }
+    .background(c("statusBar.background", palette: "bg0", literal: "#08060F"), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(c("statusBar.border", palette: "border", literal: "#9D4EDD").opacity(0.7)))
+  }
+
+  private var communicationPreview: some View {
+    VStack(alignment: .leading, spacing: 7) {
+      Text("https://paenia.app")
+        .font(.system(size: 10, weight: .semibold, design: .rounded))
+        .foregroundStyle(c("textLink.foreground", palette: "blue", literal: "#00D4FF"))
+      HStack(spacing: 6) {
+        Circle().fill(c("chat.avatarForeground", palette: "accent", literal: "#FF4FD8")).frame(width: 16, height: 16)
+        Text("/theme preview")
+          .font(.system(size: 10, design: .monospaced))
+          .foregroundStyle(c("chat.slashCommandForeground", palette: "accent", literal: "#FF4FD8"))
+      }
+      Text("Notification link")
+        .font(.system(size: 10, weight: .medium))
+        .foregroundStyle(c("notificationLink.foreground", palette: "accent", literal: "#FF4FD8"))
+    }
+  }
+
+  private var textPreview: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      textSample("Primary readable text", p("fg0", "#FFF7FF"))
+      textSample("Secondary supporting text", p("fg1", "#E9D7FF"))
+      textSample("Muted comment or hint text", p("muted", "#7C6A99"))
+      textSample("Disabled line number text", p("muted2", "#534566"))
+    }
+  }
+
+  private var accentPreview: some View {
+    VStack(spacing: 7) {
+      HStack(spacing: 7) {
+        buttonChip("Focus", c("focusBorder", palette: "accent", literal: "#FF4FD8"))
+        buttonChip("Link", c("textLink.foreground", palette: "blue", literal: "#00D4FF"))
+        buttonChip("Hover", c("list.hoverBackground", palette: "bg3", literal: "#241642"))
+      }
+      listChip("active selection foreground", active: true)
+    }
+  }
+
+  private var syntaxPreview: some View {
+    VStack(alignment: .leading, spacing: 3) {
+      codeToken([("export ", p("accent", "#FF4FD8")), ("function ", p("accent", "#FF4FD8")), ("Preview", p("blue", "#00D4FF")), ("() {", p("fg1", "#E9D7FF"))])
+      codeToken([("  const ", p("accent", "#FF4FD8")), ("color", p("fg0", "#FFF7FF")), (" = ", p("fg1", "#E9D7FF")), ("\"live\"", p("green", "#5CFF95"))])
+      codeToken([("  return ", p("accent", "#FF4FD8")), ("42", p("purple", "#C77DFF"))])
+    }
+  }
+
+  private var otherPreview: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text("Selected keys in this group still preview through the live color chain.")
+        .font(.system(size: 10))
+        .foregroundStyle(.secondary)
+      ForEach(category.keys.prefix(3), id: \.self) { key in
+        HStack(spacing: 6) {
+          RoundedRectangle(cornerRadius: 3).fill(c(key, literal: "#888888")).frame(width: 18, height: 14)
+          Text(settingTitle(key))
+            .font(.system(size: 9))
+            .lineLimit(1)
+        }
+      }
+    }
+  }
+
+  private func surfaceBlock(_ title: String, _ color: Color) -> some View {
+    VStack(spacing: 4) {
+      RoundedRectangle(cornerRadius: 7, style: .continuous)
+        .fill(color)
+        .frame(height: 58)
+        .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(c("contrastBorder", palette: "border", literal: "#9D4EDD").opacity(0.35)))
+      Text(title)
+        .font(.system(size: 8, weight: .semibold))
+        .foregroundStyle(.secondary)
+    }
+    .frame(maxWidth: .infinity)
+  }
+
+  private func listChip(_ title: String, active: Bool, hover: Bool = false, inactive: Bool = false) -> some View {
+    let bg = active ? c("list.activeSelectionBackground", palette: "bg4", literal: "#34205F") : (hover ? c("list.hoverBackground", palette: "bg3", literal: "#241642") : (inactive ? c("list.inactiveSelectionBackground", palette: "bg3", literal: "#241642") : Color.clear))
+    let fg = active ? c("list.activeSelectionForeground", palette: "accentSoft", literal: "#FF9BE8") : c("sideBar.foreground", palette: "fg1", literal: "#E9D7FF")
+    return Text(title)
+      .font(.system(size: 9, weight: active ? .semibold : .regular, design: .rounded))
+      .foregroundStyle(fg)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.horizontal, 7).padding(.vertical, 5)
+      .background(bg, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+  }
+
+  private func tabChip(_ title: String, active: Bool, modified: Bool) -> some View {
+    HStack(spacing: 4) {
+      Text(title)
+        .font(.system(size: 9, weight: active ? .semibold : .regular, design: .rounded))
+        .lineLimit(1)
+      if modified { Circle().fill(c("tab.activeModifiedBorder", palette: "accent", literal: "#FF4FD8")).frame(width: 5, height: 5) }
+    }
+    .foregroundStyle(active ? p("fg0", "#FFF7FF") : p("fg1", "#E9D7FF").opacity(0.62))
+    .padding(.horizontal, 8)
+    .frame(height: 28)
+    .background(active ? c("tab.activeBackground", palette: "bg0", literal: "#08060F") : c("tab.inactiveBackground", palette: "bg1", literal: "#100B1F"))
+    .overlay(alignment: .top) {
+      Rectangle().fill(active ? c("tab.activeBorderTop", palette: "accent", literal: "#FF4FD8") : Color.clear).frame(height: 2)
+    }
+  }
+
+  private func borderBox(_ title: String, _ color: Color) -> some View {
+    Text(title)
+      .font(.system(size: 9, weight: .semibold, design: .rounded))
+      .frame(maxWidth: .infinity, minHeight: 42)
+      .background(c("editor.background", palette: "bg0", literal: "#08060F"), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+      .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(color, lineWidth: 1.4))
+  }
+
+  private func inputBox(_ title: String, bg: Color, border: Color) -> some View {
+    Text(title)
+      .font(.system(size: 9, weight: .semibold, design: .rounded))
+      .foregroundStyle(p("fg0", "#FFF7FF"))
+      .frame(maxWidth: .infinity, minHeight: 32)
+      .background(bg, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+      .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(border, lineWidth: 0.9))
+  }
+
+  private func editorLine(_ number: String, _ text: String, active: Bool, selection: Bool = false) -> some View {
+    HStack(spacing: 7) {
+      Text(number)
+        .font(.system(size: 9, design: .monospaced))
+        .foregroundStyle(active ? c("editorLineNumber.activeForeground", palette: "accent", literal: "#FF4FD8") : c("editorLineNumber.foreground", palette: "muted2", literal: "#534566"))
+        .frame(width: 20, alignment: .trailing)
+      Text(text)
+        .font(.system(size: 9, design: .monospaced))
+        .foregroundStyle(p("fg0", "#FFF7FF"))
+        .padding(.horizontal, selection ? 4 : 0)
+        .background(selection ? c("selection.background", palette: "accent", literal: "#FF4FD840") : Color.clear)
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, 7)
+    .frame(height: 24)
+    .background(active ? c("editor.lineHighlightBackground", palette: "overlayLow", literal: "#FFFFFF08") : Color.clear)
+  }
+
+  private func buttonChip(_ title: String, _ color: Color) -> some View {
+    Text(title)
+      .font(.system(size: 9, weight: .bold, design: .rounded))
+      .foregroundStyle(c("button.foreground", palette: "bg0", literal: "#08060F"))
+      .lineLimit(1)
+      .minimumScaleFactor(0.7)
+      .padding(.horizontal, 8).padding(.vertical, 6)
+      .background(color, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+  }
+
+  private func gitRow(_ file: String, _ badge: String, _ color: Color) -> some View {
+    HStack(spacing: 7) {
+      Text(badge)
+        .font(.system(size: 9, weight: .bold, design: .monospaced))
+        .foregroundStyle(color)
+        .frame(width: 18)
+      Text(file)
+        .font(.system(size: 9, design: .monospaced))
+        .foregroundStyle(color)
+      Spacer(minLength: 0)
+    }
+  }
+
+  private func scrollRow(_ title: String, _ color: Color) -> some View {
+    HStack(spacing: 8) {
+      Text(title)
+        .font(.system(size: 9, weight: .semibold, design: .rounded))
+        .frame(width: 42, alignment: .leading)
+      Capsule().fill(color).frame(height: 8)
+    }
+  }
+
+  private func terminalText(_ text: String, _ color: Color) -> some View {
+    Text(text)
+      .font(.system(size: 10, design: .monospaced))
+      .foregroundStyle(color)
+      .lineLimit(1)
+  }
+
+  private func textSample(_ text: String, _ color: Color) -> some View {
+    Text(text)
+      .font(.system(size: 10, weight: .medium, design: .rounded))
+      .foregroundStyle(color)
+      .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private func codeToken(_ tokens: [(String, Color)]) -> some View {
+    HStack(spacing: 0) {
+      ForEach(Array(tokens.enumerated()), id: \.offset) { _, token in
+        Text(token.0)
+          .font(.system(size: 9, design: .monospaced))
+          .foregroundStyle(token.1)
+      }
+      Spacer(minLength: 0)
+    }
+  }
+}
+
 // MARK: - Cute IDE Preview
 
 struct IDEPreview: View {
@@ -1530,7 +2146,19 @@ struct IDEPreview: View {
     let tabInactiveBg = c("tab.inactiveBackground", palette: "bg1", literal: "#100B1F")
     let tabsStripBg = c("editorGroupHeader.tabsBackground", palette: "bg0", literal: "#08060F")
     let tabBorderTop = c("tab.activeBorderTop", palette: "accent", literal: "#FF4FD8")
+    let contrastBorder = c("contrastBorder", palette: "border", literal: "#9D4EDD")
+    let activityBorder = c("activityBar.border", palette: "border", literal: "#9D4EDD")
+    let sidebarBorder = c("sideBar.border", palette: "border", literal: "#9D4EDD")
+    let titleBorder = c("titleBar.border", palette: "border", literal: "#9D4EDD")
+    let editorGroupBorder = c("editorGroup.border", palette: "border", literal: "#9D4EDD")
+    let panelBg = c("panel.background", palette: "bg1", literal: "#100B1F")
+    let panelBorder = c("panel.border", palette: "border", literal: "#9D4EDD")
+    let panelActiveBorder = c("panelTitle.activeBorder", palette: "accent", literal: "#FF4FD8")
+    let terminalBg = c("terminal.background", literal: "#090B0C")
+    let terminalFg = c("terminal.foreground", palette: "fg1", literal: "#E9D7FF")
+    let terminalCursor = c("terminalCursor.foreground", palette: "accent", literal: "#FF4FD8")
     let statusBg = c("statusBar.background", palette: "bg0", literal: "#08060F")
+    let statusBorder = c("statusBar.border", palette: "border", literal: "#9D4EDD")
     let statusRemoteBg = c("statusBarItem.remoteBackground", palette: "accent", literal: "#FF4FD8")
     let statusRemoteFg = c("statusBarItem.remoteForeground", palette: "bg0", literal: "#08060F")
     let lineHighlight = c("editor.lineHighlightBackground", literal: "#FFFFFF10")
@@ -1565,6 +2193,11 @@ struct IDEPreview: View {
       }
       .padding(.horizontal, 8).padding(.vertical, 5)
       .background(Color(nsColor: titleBg))
+      .overlay(alignment: .bottom) {
+        Rectangle()
+          .fill(Color(nsColor: titleBorder).opacity(0.75))
+          .frame(height: 1)
+      }
 
       // ── Main split ───────────────────────────────────────────
       HStack(spacing: 0) {
@@ -1583,6 +2216,11 @@ struct IDEPreview: View {
         .padding(.vertical, 8)
         .frame(width: 22)
         .background(Color(nsColor: activityBg))
+        .overlay(alignment: .trailing) {
+          Rectangle()
+            .fill(Color(nsColor: activityBorder).opacity(0.75))
+            .frame(width: 1)
+        }
 
         // Sidebar (compact)
         VStack(alignment: .leading, spacing: 3) {
@@ -1611,6 +2249,11 @@ struct IDEPreview: View {
         }
         .frame(width: 88)
         .background(Color(nsColor: sidebarBg))
+        .overlay(alignment: .trailing) {
+          Rectangle()
+            .fill(Color(nsColor: sidebarBorder).opacity(0.75))
+            .frame(width: 1)
+        }
 
         // Editor area
         VStack(spacing: 0) {
@@ -1632,6 +2275,11 @@ struct IDEPreview: View {
           }
           .frame(height: 18)
           .background(Color(nsColor: tabsStripBg))
+          .overlay(alignment: .bottom) {
+            Rectangle()
+              .fill(Color(nsColor: editorGroupBorder).opacity(0.7))
+              .frame(height: 1)
+          }
 
           // Code body — small, dense
           VStack(alignment: .leading, spacing: 0) {
@@ -1648,6 +2296,22 @@ struct IDEPreview: View {
           .padding(.top, 2).padding(.bottom, 4)
           .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
           .background(Color(nsColor: editorBg))
+
+          terminalPanel(
+            panelBg: panelBg,
+            panelBorder: panelBorder,
+            activeBorder: panelActiveBorder,
+            terminalBg: terminalBg,
+            terminalFg: terminalFg,
+            cursor: terminalCursor,
+            accent: synAccent,
+            green: synGreen
+          )
+        }
+        .overlay(alignment: .leading) {
+          Rectangle()
+            .fill(Color(nsColor: editorGroupBorder).opacity(0.65))
+            .frame(width: 1)
         }
       }
       .frame(maxHeight: .infinity)
@@ -1685,17 +2349,85 @@ struct IDEPreview: View {
         .padding(.trailing, 8)
       }
       .background(Color(nsColor: statusBg))
+      .overlay(alignment: .top) {
+        Rectangle()
+          .fill(Color(nsColor: statusBorder).opacity(0.75))
+          .frame(height: 1)
+      }
     }
-    .frame(height: 220)
+    .frame(height: 276)
     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     .overlay(
       RoundedRectangle(cornerRadius: 10, style: .continuous)
-        .stroke(.white.opacity(0.08), lineWidth: 1)
+        .stroke(Color(nsColor: contrastBorder).opacity(0.72), lineWidth: 1.1)
     )
     .shadow(color: .black.opacity(0.35), radius: 14, y: 5)
   }
 
   // MARK: - Subviews
+
+  @ViewBuilder
+  private func terminalPanel(
+    panelBg: NSColor,
+    panelBorder: NSColor,
+    activeBorder: NSColor,
+    terminalBg: NSColor,
+    terminalFg: NSColor,
+    cursor: NSColor,
+    accent: NSColor,
+    green: NSColor
+  ) -> some View {
+    VStack(spacing: 0) {
+      HStack(spacing: 10) {
+        Text("TERMINAL")
+          .font(.system(size: 7, weight: .bold, design: .rounded))
+          .foregroundStyle(Color(nsColor: terminalFg).opacity(0.85))
+          .overlay(alignment: .bottom) {
+            Rectangle()
+              .fill(Color(nsColor: activeBorder))
+              .frame(height: 1.2)
+              .offset(y: 4)
+          }
+        Text("PROBLEMS")
+          .font(.system(size: 7, weight: .semibold, design: .rounded))
+          .foregroundStyle(Color(nsColor: terminalFg).opacity(0.45))
+        Spacer(minLength: 0)
+        Circle()
+          .fill(Color(nsColor: accent))
+          .frame(width: 5, height: 5)
+      }
+      .padding(.horizontal, 8)
+      .frame(height: 18)
+      .background(Color(nsColor: panelBg))
+      .overlay(alignment: .top) {
+        Rectangle()
+          .fill(Color(nsColor: panelBorder).opacity(0.75))
+          .frame(height: 1)
+      }
+
+      VStack(alignment: .leading, spacing: 2) {
+        terminalCode("$ swift build", color: terminalFg)
+        terminalCode("Build complete", color: green)
+        HStack(spacing: 3) {
+          terminalCode("$", color: terminalFg)
+          Rectangle()
+            .fill(Color(nsColor: cursor))
+            .frame(width: 6, height: 9)
+        }
+      }
+      .padding(.horizontal, 8)
+      .padding(.vertical, 5)
+      .frame(maxWidth: .infinity, minHeight: 46, alignment: .topLeading)
+      .background(Color(nsColor: terminalBg))
+    }
+  }
+
+  private func terminalCode(_ text: String, color: NSColor) -> some View {
+    Text(text)
+      .font(.system(size: 7, design: .monospaced))
+      .foregroundStyle(Color(nsColor: color))
+      .lineLimit(1)
+  }
 
   @ViewBuilder
   private func dotIcon(_ name: String, isActive: Bool, accent: NSColor, mute: NSColor) -> some View {
