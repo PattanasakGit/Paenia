@@ -20,6 +20,9 @@ struct ContentView: View {
     .sheet(isPresented: $model.showPreferences) {
       PreferencesSheet(model: model)
     }
+    .sheet(isPresented: $model.showGuidedTour) {
+      GuidedTourSheet(model: model)
+    }
     .sheet(isPresented: $model.pendingApplyConfirmation) {
       ConfirmApplySheet(model: model)
     }
@@ -2723,6 +2726,247 @@ struct StatusBar: View {
   }
 }
 
+// MARK: - Guided Tour
+
+struct GuidedTourSheet: View {
+  @ObservedObject var model: ThemeModel
+  @Environment(\.themeChrome) private var theme
+
+  private struct TourStep {
+    let title: String
+    let subtitle: String
+    let icon: String
+    let highlight: String
+    let bullets: [String]
+  }
+
+  private let steps: [TourStep] = [
+    TourStep(
+      title: "เลือก IDE ที่จะดูและ Apply",
+      subtitle: "เริ่มจาก target ด้านบน ก่อนแก้สีหรือ Apply",
+      icon: "macwindow.on.rectangle",
+      highlight: "Target menu",
+      bullets: [
+        "Edit From คือ IDE ที่ใช้ดู live colors บนดิสก์",
+        "Apply To เลือกได้หลาย target ใน Settings",
+        "ถ้า path ไม่พร้อม แอปจะเตือนก่อนเขียนไฟล์"
+      ]
+    ),
+    TourStep(
+      title: "เลือก preset แล้วดู Live Preview",
+      subtitle: "Preview หลักคือภาพรวมธีมจริงก่อนแตะ settings.json",
+      icon: "rectangle.on.rectangle.angled",
+      highlight: "Live Preview",
+      bullets: [
+        "เปลี่ยน preset แล้ว preview อัปเดตทันที",
+        "กรอบ IDE แสดง border, terminal, tabs และ status bar",
+        "ยังไม่มีการเขียนไฟล์จนกว่าจะกด Apply"
+      ]
+    ),
+    TourStep(
+      title: "แก้ Palette หรือ Detailed",
+      subtitle: "Palette แก้สีหลัก, Detailed แก้ workbench key รายตัว",
+      icon: "paintpalette.fill",
+      highlight: "Palette / Detailed",
+      bullets: [
+        "Palette เหมาะกับปรับ mood ของธีมทั้งชุด",
+        "Detailed เหมาะกับ override จุดเล็ก ๆ",
+        "Section Preview แสดงผลตามหมวดที่กำลังแก้"
+      ]
+    ),
+    TourStep(
+      title: "Safe Demo: ลองได้ก่อน Apply",
+      subtitle: "การปรับสีในแอปเป็น preview state จนกว่าจะ confirm Apply",
+      icon: "hand.raised.fill",
+      highlight: "Safe edit area",
+      bullets: [
+        "ลองเปลี่ยนสี, reset group, reset all ได้ก่อนเขียนไฟล์",
+        "Save My Preset เก็บ palette เป็น snapshot ของคุณ",
+        "Reload จะดึงค่า theme.json และ target disk กลับมาใหม่"
+      ]
+    ),
+    TourStep(
+      title: "Backup และ Original Snapshot",
+      subtitle: "ก่อน Apply ครั้งแรกของ IDE ระบบจะบังคับเก็บ original ก่อน",
+      icon: "lock.shield.fill",
+      highlight: "Safety gate",
+      bullets: [
+        "Original Snapshot คือ settings.json ก่อน Paenia แตะ",
+        "Apply ทุกครั้งมี backup ปกติอีกชั้น",
+        "ถ้าไฟล์เสีย แอปจะหยุดและเสนอ restore จาก backup ที่ valid"
+      ]
+    ),
+    TourStep(
+      title: "Apply แบบมี modal ยืนยัน",
+      subtitle: "ขั้นสุดท้ายคือกด Apply แล้วตรวจ target ก่อนเขียนจริง",
+      icon: "checkmark.seal.fill",
+      highlight: "Apply",
+      bullets: [
+        "Cursor และ VS Code-family targets ใช้ settings.json ของแต่ละตัว",
+        "ผลลัพธ์ Apply จะแสดง success, partial หรือ failure ชัดเจน",
+        "ถ้าสียังไม่เปลี่ยนใน IDE ให้ Reload Window ใน editor"
+      ]
+    )
+  ]
+
+  private var step: TourStep { steps[min(max(model.guidedTourStep, 0), steps.count - 1)] }
+  private var isLast: Bool { model.guidedTourStep >= steps.count - 1 }
+
+  var body: some View {
+    VStack(spacing: 0) {
+      HStack(alignment: .center, spacing: 12) {
+        ZStack {
+          Circle().fill(theme.accent.opacity(0.16)).frame(width: 42, height: 42)
+          Image(systemName: "sparkles")
+            .font(.system(size: 18, weight: .semibold))
+            .foregroundStyle(theme.accent)
+        }
+        VStack(alignment: .leading, spacing: 2) {
+          Text("โหมดสอนใช้งาน Paenia")
+            .font(.system(.title3, design: .rounded).weight(.bold))
+          Text("Step \(model.guidedTourStep + 1) / \(steps.count)")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        Spacer()
+        Button {
+          model.finishGuidedTour()
+        } label: {
+          Image(systemName: "xmark")
+            .font(.system(size: 11, weight: .bold))
+            .frame(width: 24, height: 24)
+        }
+        .buttonStyle(.plain)
+        .help("ปิด tour และไม่แสดงอัตโนมัติอีก")
+      }
+      .padding(20)
+
+      Divider().opacity(0.3)
+
+      HStack(spacing: 0) {
+        tourPreview
+          .frame(width: 270)
+          .padding(20)
+        Divider().opacity(0.25)
+        VStack(alignment: .leading, spacing: 16) {
+          Label(step.highlight, systemImage: step.icon)
+            .font(.system(.caption, design: .rounded).weight(.bold))
+            .foregroundStyle(theme.accent)
+            .padding(.horizontal, 9).padding(.vertical, 5)
+            .background(theme.accent.opacity(0.10), in: Capsule())
+
+          VStack(alignment: .leading, spacing: 6) {
+            Text(step.title)
+              .font(.system(.title2, design: .rounded).weight(.bold))
+            Text(step.subtitle)
+              .font(.callout)
+              .foregroundStyle(.secondary)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+
+          VStack(alignment: .leading, spacing: 10) {
+            ForEach(step.bullets, id: \.self) { bullet in
+              HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "checkmark.circle.fill")
+                  .font(.caption)
+                  .foregroundStyle(theme.success)
+                  .padding(.top, 2)
+                Text(bullet)
+                  .font(.callout)
+                  .fixedSize(horizontal: false, vertical: true)
+              }
+            }
+          }
+
+          Spacer()
+        }
+        .padding(22)
+      }
+
+      Divider().opacity(0.3)
+
+      HStack(spacing: 10) {
+        Button("ไม่ต้องแสดงอีก") {
+          model.finishGuidedTour()
+        }
+        .buttonStyle(.bordered)
+        Spacer()
+        Button("ย้อนกลับ") {
+          model.guidedTourStep = max(0, model.guidedTourStep - 1)
+        }
+        .buttonStyle(.bordered)
+        .disabled(model.guidedTourStep == 0)
+        Button(isLast ? "เริ่มใช้งาน" : "ถัดไป") {
+          if isLast {
+            model.finishGuidedTour()
+          } else {
+            model.guidedTourStep += 1
+          }
+        }
+        .buttonStyle(.borderedProminent)
+        .keyboardShortcut(.defaultAction)
+      }
+      .padding(20)
+    }
+    .frame(width: 720, height: 460)
+  }
+
+  private var tourPreview: some View {
+    VStack(spacing: 12) {
+      ZStack {
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
+          .fill(theme.surface(0.06))
+          .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+              .stroke(theme.accent.opacity(0.28), lineWidth: 1)
+          )
+          .shadow(color: theme.accent.opacity(0.16), radius: 14, y: 6)
+
+        VStack(spacing: 10) {
+          HStack(spacing: 6) {
+            Circle().fill(Color.red.opacity(0.9)).frame(width: 7, height: 7)
+            Circle().fill(Color.yellow.opacity(0.9)).frame(width: 7, height: 7)
+            Circle().fill(Color.green.opacity(0.9)).frame(width: 7, height: 7)
+            Spacer()
+          }
+          .padding(.horizontal, 12).padding(.top, 10)
+
+          tourHighlightRow("Target", icon: "cursorarrow.rays", active: model.guidedTourStep == 0)
+          tourHighlightRow("Preview", icon: "rectangle.on.rectangle", active: model.guidedTourStep == 1)
+          tourHighlightRow("Colors", icon: "paintpalette", active: model.guidedTourStep == 2 || model.guidedTourStep == 3)
+          tourHighlightRow("Backup", icon: "lock.shield", active: model.guidedTourStep == 4)
+          tourHighlightRow("Apply", icon: "checkmark.seal", active: model.guidedTourStep == 5)
+          Spacer(minLength: 0)
+        }
+      }
+      .frame(height: 260)
+
+      Text("Tour นี้เป็น guide overlay เท่านั้น ไม่เขียน settings.json")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
+    }
+  }
+
+  private func tourHighlightRow(_ title: String, icon: String, active: Bool) -> some View {
+    HStack(spacing: 8) {
+      Image(systemName: icon)
+        .font(.system(size: 11, weight: .semibold))
+      Text(title)
+        .font(.system(.caption, design: .rounded).weight(.semibold))
+      Spacer()
+    }
+    .padding(.horizontal, 10).padding(.vertical, 8)
+    .foregroundStyle(active ? theme.accent : .secondary)
+    .background(active ? theme.accent.opacity(0.16) : theme.surface(0.04), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 9, style: .continuous)
+        .stroke(active ? theme.accent.opacity(0.45) : theme.surface(0.08), lineWidth: active ? 1 : 0.7)
+    )
+    .padding(.horizontal, 12)
+  }
+}
+
 // MARK: - Preferences Sheet
 
 // MARK: - Preferences (Apple System Settings style)
@@ -3059,6 +3303,28 @@ struct PreferencesSheet: View {
     VStack(alignment: .leading, spacing: 18) {
       SettingsGroup(title: "Quick Start",
                     footer: "เริ่มต้นใช้งานใน 4 ขั้นตอน") {
+        Button {
+          model.startGuidedTour()
+        } label: {
+          HStack(spacing: 10) {
+            IconTile(symbol: "sparkles.rectangle.stack.fill", tint: theme.accent, size: 26)
+            VStack(alignment: .leading, spacing: 2) {
+              Text("เริ่มโหมดสอนใช้งาน")
+                .font(.callout.weight(.semibold))
+              Text("เปิด tour แบบ interactive พร้อม safety walkthrough")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Image(systemName: "play.circle.fill")
+              .foregroundStyle(theme.accent)
+          }
+          .padding(.horizontal, 14).padding(.vertical, 10)
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("เปิดโหมดสอนใช้งานซ้ำ — ใช้ได้แม้เคยข้ามตอนเปิดแอปครั้งแรก")
+        SettingsDivider()
         helpStep(num: "1", title: "เลือก Editor", body: "เลือก Cursor / VS Code / editor อื่น ๆ ที่จะรับ theme จาก toolbar ด้านซ้ายบน")
         SettingsDivider()
         helpStep(num: "2", title: "เลือก Preset", body: "เปิด preset picker ที่ sidebar ซ้าย — เริ่มจากหมวด Minimal · Earth Tone")

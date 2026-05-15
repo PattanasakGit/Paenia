@@ -16,6 +16,7 @@ let backupsRoot = studioDir.appendingPathComponent("Backups")
 /// Files here are intentionally not exposed to the regular Backup Management
 /// delete UI; users must remove them manually if they truly want to.
 let originalBackupsRoot = studioDir.appendingPathComponent("OriginalBackups")
+let guidedTourSeenDefaultsKey = "paenia.guidedTour.seen.v1"
 
 /// Path where the original snapshot for a given source settings.json lives.
 /// Mirrors the regular `backupsDirectory(for:)` encoding for parity.
@@ -1134,6 +1135,8 @@ final class ThemeModel: ObservableObject {
   @Published var filterText: String = ""
   @Published var selectedKey: String? = nil
   @Published var showPreferences: Bool = false
+  @Published var showGuidedTour: Bool = false
+  @Published var guidedTourStep: Int = 0
   @Published var showInspector: Bool = true
 
   /// Set when GitHub latest release is newer than this build; shown as a Thai confirmation dialog.
@@ -1310,6 +1313,32 @@ final class ThemeModel: ObservableObject {
     ensureThemeFile()
     reload()
     captureOriginalsIfNeeded()
+    scheduleFirstRunGuidedTourIfNeeded()
+  }
+
+  func scheduleFirstRunGuidedTourIfNeeded() {
+    guard !UserDefaults.standard.bool(forKey: guidedTourSeenDefaultsKey) else { return }
+    Task { @MainActor in
+      try? await Task.sleep(nanoseconds: 450_000_000)
+      showGuidedTour = true
+    }
+  }
+
+  func startGuidedTour() {
+    showPreferences = false
+    guidedTourStep = 0
+    Task { @MainActor in
+      try? await Task.sleep(nanoseconds: 180_000_000)
+      showGuidedTour = true
+    }
+  }
+
+  func finishGuidedTour(doNotShowAgain: Bool = true) {
+    if doNotShowAgain {
+      UserDefaults.standard.set(true, forKey: guidedTourSeenDefaultsKey)
+    }
+    showGuidedTour = false
+    guidedTourStep = 0
   }
 
   /// One-time migration: if the legacy "Workbench Theme Studio" support
