@@ -1384,13 +1384,24 @@ struct InspectorView: View {
 
   var body: some View {
     VStack(spacing: 0) {
+      VStack(alignment: .leading, spacing: 14) {
+        section("LIVE PREVIEW · \(model.activeTarget.name)") {
+          IDEPreview(model: model)
+        }
+      }
+      .padding(.horizontal, 16)
+      .padding(.top, 16)
+      .padding(.bottom, 12)
+
+      Divider().opacity(0.25)
+
       ScrollView {
-        VStack(alignment: .leading, spacing: 18) {
-          section("LIVE PREVIEW · \(model.activeTarget.name)") {
-            ComprehensiveIDEPreview(model: model)
-          }
+        VStack(alignment: .leading, spacing: 16) {
           section("SECTION PREVIEW · \(currentCategory.title)") {
             SectionDynamicPreview(model: model)
+          }
+          section("LIVE DETAILS") {
+            ComprehensiveIDEPreview(model: model)
           }
           section("PALETTE") {
             PaletteGrid(model: model)
@@ -1399,7 +1410,8 @@ struct InspectorView: View {
             SelectedKeyInfo(model: model)
           }
         }
-        .padding(16)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
       }
 
       // Pinned to the bottom of the inspector — Reset cluster (only does
@@ -1528,43 +1540,39 @@ struct ComprehensiveIDEPreview: View {
   }
 
   var body: some View {
-    VStack(spacing: 8) {
-      IDEPreview(model: model)
-
-      LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 2), spacing: 6) {
-        previewTile("Command", icon: "command", background: c("quickInput.background", palette: "bg2", literal: "#17102A")) {
-          VStack(alignment: .leading, spacing: 4) {
-            previewSearchRow
-            previewListRow("Open Settings", active: true)
-            previewListRow("Toggle Terminal", active: false)
-          }
-        }
-
-        previewTile("Buttons", icon: "button.programmable", background: c("editorWidget.background", palette: "bg2", literal: "#17102A")) {
-          HStack(spacing: 5) {
-            previewButton("Apply", bg: c("button.background", palette: "accent", literal: "#FF4FD8"), fg: c("button.foreground", palette: "bg0", literal: "#08060F"))
-            previewButton("Hover", bg: c("button.hoverBackground", palette: "accentSoft", literal: "#FF9BE8"), fg: c("button.foreground", palette: "bg0", literal: "#08060F"))
-          }
-          toolbarStrip
-        }
-
-        previewTile("Terminal", icon: "terminal", background: c("panel.background", palette: "bg1", literal: "#100B1F")) {
-          terminalLine("$ pnpm dev", color: c("terminal.foreground", palette: "fg1", literal: "#E9D7FF"))
-          terminalLine("ready in 642ms", color: p("green", "#5CFF95"))
-          Rectangle()
-            .fill(c("terminalCursor.foreground", palette: "accent", literal: "#FF4FD8"))
-            .frame(width: 6, height: 10)
-        }
-
-        previewTile("States", icon: "point.3.connected.trianglepath.dotted", background: c("sideBar.background", palette: "bg1", literal: "#100B1F")) {
-          gitDot("M", c("gitDecoration.modifiedResourceForeground", palette: "accent", literal: "#FF4FD8"))
-          gitDot("A", c("gitDecoration.addedResourceForeground", palette: "green", literal: "#5CFF95"))
-          gitDot("D", c("gitDecoration.deletedResourceForeground", palette: "red", literal: "#FF3864"))
-          scrollbarSample
+    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 2), spacing: 6) {
+      previewTile("Command", icon: "command", background: c("quickInput.background", palette: "bg2", literal: "#17102A")) {
+        VStack(alignment: .leading, spacing: 4) {
+          previewSearchRow
+          previewListRow("Open Settings", active: true)
+          previewListRow("Toggle Terminal", active: false)
         }
       }
+
+      previewTile("Buttons", icon: "button.programmable", background: c("editorWidget.background", palette: "bg2", literal: "#17102A")) {
+        HStack(spacing: 5) {
+          previewButton("Apply", bg: c("button.background", palette: "accent", literal: "#FF4FD8"), fg: c("button.foreground", palette: "bg0", literal: "#08060F"))
+          previewButton("Hover", bg: c("button.hoverBackground", palette: "accentSoft", literal: "#FF9BE8"), fg: c("button.foreground", palette: "bg0", literal: "#08060F"))
+        }
+        toolbarStrip
+      }
+
+      previewTile("Terminal", icon: "terminal", background: c("panel.background", palette: "bg1", literal: "#100B1F")) {
+        terminalLine("$ pnpm dev", color: c("terminal.foreground", palette: "fg1", literal: "#E9D7FF"))
+        terminalLine("ready in 642ms", color: p("green", "#5CFF95"))
+        Rectangle()
+          .fill(c("terminalCursor.foreground", palette: "accent", literal: "#FF4FD8"))
+          .frame(width: 6, height: 10)
+      }
+
+      previewTile("States", icon: "point.3.connected.trianglepath.dotted", background: c("sideBar.background", palette: "bg1", literal: "#100B1F")) {
+        gitDot("M", c("gitDecoration.modifiedResourceForeground", palette: "accent", literal: "#FF4FD8"))
+        gitDot("A", c("gitDecoration.addedResourceForeground", palette: "green", literal: "#5CFF95"))
+        gitDot("D", c("gitDecoration.deletedResourceForeground", palette: "red", literal: "#FF3864"))
+        scrollbarSample
+      }
     }
-    .help("Preview หลัก — แสดง workbench, editor, widgets, terminal, buttons และ state สำคัญจากค่าสีปัจจุบัน")
+    .help("Live details — แสดง widgets, terminal, buttons และ state สำคัญจากค่าสีปัจจุบัน")
   }
 
   private var previewSearchRow: some View {
@@ -1580,7 +1588,7 @@ struct ComprehensiveIDEPreview: View {
     .background(c("input.background", palette: "bg2", literal: "#17102A"), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
     .overlay(
       RoundedRectangle(cornerRadius: 5, style: .continuous)
-        .stroke(c("input.border", palette: "border", literal: "#9D4EDD"), lineWidth: 0.8)
+        .stroke(c("input.border", palette: "border", literal: "#9D4EDD").opacity(0.45), lineWidth: 0.7)
     )
   }
 
@@ -1665,7 +1673,7 @@ struct ComprehensiveIDEPreview: View {
     .background(background, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     .overlay(
       RoundedRectangle(cornerRadius: 8, style: .continuous)
-        .stroke(c("widget.border", palette: "border", literal: "#9D4EDD").opacity(0.45), lineWidth: 0.8)
+        .stroke(c("widget.border", palette: "border", literal: "#9D4EDD").opacity(0.18), lineWidth: 0.7)
     )
   }
 }
@@ -1713,7 +1721,7 @@ struct SectionDynamicPreview: View {
     .background(c("editorWidget.background", palette: "bg2", literal: "#17102A"), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     .overlay(
       RoundedRectangle(cornerRadius: 10, style: .continuous)
-        .stroke(c("editorWidget.border", palette: "border", literal: "#9D4EDD").opacity(0.5), lineWidth: 0.9)
+        .stroke(c("editorWidget.border", palette: "border", literal: "#9D4EDD").opacity(0.20), lineWidth: 0.7)
     )
     .help("Section Preview — เปลี่ยนตามหมวดสีที่กำลังแก้ เพื่อดูว่าสีในหมวดนี้ไปใช้ตรงไหน")
   }
@@ -2355,13 +2363,40 @@ struct IDEPreview: View {
           .frame(height: 1)
       }
     }
-    .frame(height: 276)
+    .frame(height: 204)
+    .background(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .fill(Color(nsColor: contrastBorder).opacity(0.06))
+        .blur(radius: 3)
+        .padding(-3)
+    )
     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .overlay(alignment: .top) {
+      LinearGradient(
+        colors: [
+          Color(nsColor: titleFg).opacity(0.12),
+          Color(nsColor: synAccent).opacity(0.035),
+          .clear
+        ],
+        startPoint: .top,
+        endPoint: .bottom
+      )
+      .frame(height: 46)
+      .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+      .allowsHitTesting(false)
+    }
     .overlay(
       RoundedRectangle(cornerRadius: 10, style: .continuous)
         .stroke(Color(nsColor: contrastBorder).opacity(0.72), lineWidth: 1.1)
     )
-    .shadow(color: .black.opacity(0.35), radius: 14, y: 5)
+    .overlay(
+      RoundedRectangle(cornerRadius: 9, style: .continuous)
+        .inset(by: 1)
+        .stroke(Color(nsColor: titleFg).opacity(0.12), lineWidth: 0.7)
+    )
+    .shadow(color: Color(nsColor: contrastBorder).opacity(0.18), radius: 10, y: 5)
+    .shadow(color: Color(nsColor: synAccent).opacity(0.09), radius: 14, y: 0)
+    .shadow(color: .black.opacity(0.24), radius: 9, y: 4)
   }
 
   // MARK: - Subviews
@@ -2397,7 +2432,7 @@ struct IDEPreview: View {
           .frame(width: 5, height: 5)
       }
       .padding(.horizontal, 8)
-      .frame(height: 18)
+      .frame(height: 16)
       .background(Color(nsColor: panelBg))
       .overlay(alignment: .top) {
         Rectangle()
@@ -2416,8 +2451,8 @@ struct IDEPreview: View {
         }
       }
       .padding(.horizontal, 8)
-      .padding(.vertical, 5)
-      .frame(maxWidth: .infinity, minHeight: 46, alignment: .topLeading)
+      .padding(.vertical, 3)
+      .frame(maxWidth: .infinity, minHeight: 32, alignment: .topLeading)
       .background(Color(nsColor: terminalBg))
     }
   }
