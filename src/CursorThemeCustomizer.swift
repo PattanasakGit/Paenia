@@ -1145,6 +1145,7 @@ final class ThemeModel: ObservableObject {
 
   // Apply flow state
   @Published var pendingApplyConfirmation: Bool = false
+  @Published var pendingOriginalBackupTarget: EditorTarget? = nil
   @Published var isApplying: Bool = false
   @Published var applyResult: ApplyOutcome? = nil
 
@@ -2008,8 +2009,52 @@ final class ThemeModel: ObservableObject {
     detailColors = next
   }
 
-  /// Triggered by Apply button. Opens confirmation sheet (does not run yet).
+  /// Triggered by Apply button. Opens confirmation sheet only after the
+  /// focused IDE has a protected original snapshot.
   func requestApply() {
+    guard ensureActiveOriginalBackupBeforeApply() else { return }
+    pendingApplyConfirmation = true
+  }
+
+  func ensureActiveOriginalBackupBeforeApply() -> Bool {
+    let target = activeTarget
+    guard target.isDetected else { return true }
+    if originalBackup(forSettingsAt: target.settingsURL, target: target) != nil {
+      return true
+    }
+    pendingOriginalBackupTarget = target
+    return false
+  }
+
+  func confirmOriginalBackupBeforeApply(for target: EditorTarget) throws {
+    if originalBackup(forSettingsAt: target.settingsURL, target: target) != nil {
+      pendingOriginalBackupTarget = nil
+      pendingApplyConfirmation = true
+      return
+    }
+
+    guard FileManager.default.fileExists(atPath: target.settingsURL.path) else {
+      throw NSError(
+        domain: "Theme",
+        code: 120,
+        userInfo: [NSLocalizedDescriptionKey:
+          "ยังไม่พบ settings.json ของ \(target.name)\nPath: \(target.settingsURL.path)\nกรุณาเปิด \(target.name) ให้สร้างไฟล์ก่อน หรือเลือก path ที่มี settings.json อยู่แล้ว"
+        ]
+      )
+    }
+
+    guard let info = ensureOriginalBackup(forSettingsAt: target.settingsURL, target: target) else {
+      throw NSError(
+        domain: "Theme",
+        code: 121,
+        userInfo: [NSLocalizedDescriptionKey:
+          "บันทึก original snapshot ของ \(target.name) ไม่สำเร็จ\nPath: \(target.settingsURL.path)"
+        ]
+      )
+    }
+
+    pendingOriginalBackupTarget = nil
+    status = "Saved original snapshot for \(info.targetName) · \(info.displayDate)"
     pendingApplyConfirmation = true
   }
 

@@ -21,3 +21,7 @@ grep -q 'section("SECTION PREVIEW · \\(currentCategory.title)")' "$ROOT/src/Vie
 grep -q 'section("PALETTE")' "$ROOT/src/Views.swift"
 grep -q 'widget.border".*opacity(0.18)' "$ROOT/src/Views.swift"
 grep -q 'editorWidget.border".*opacity(0.20)' "$ROOT/src/Views.swift"
+grep -q 'pendingOriginalBackupTarget' "$ROOT/src/CursorThemeCustomizer.swift"
+grep -q 'ensureActiveOriginalBackupBeforeApply' "$ROOT/src/CursorThemeCustomizer.swift"
+grep -q 'ConfirmOriginalBackupSheet(model: model' "$ROOT/src/Views.swift"
+grep -q 'struct ConfirmOriginalBackupSheet' "$ROOT/src/Views.swift"

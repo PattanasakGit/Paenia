@@ -23,6 +23,9 @@ struct ContentView: View {
     .sheet(isPresented: $model.pendingApplyConfirmation) {
       ConfirmApplySheet(model: model)
     }
+    .sheet(item: $model.pendingOriginalBackupTarget) { target in
+      ConfirmOriginalBackupSheet(model: model, target: target)
+    }
     .sheet(isPresented: $model.pendingBackupConfirmation) {
       ConfirmBackupSheet(model: model)
     }
@@ -4162,6 +4165,88 @@ struct ResultCard: View {
 }
 
 // MARK: - Confirm Apply Sheet
+
+struct ConfirmOriginalBackupSheet: View {
+  @ObservedObject var model: ThemeModel
+  let target: EditorTarget
+  @Environment(\.themeChrome) private var theme
+  @State private var errorMessage: String? = nil
+
+  var body: some View {
+    VStack(spacing: 16) {
+      ZStack {
+        Circle().fill(theme.warning.opacity(0.16)).frame(width: 58, height: 58)
+        Image(systemName: "externaldrive.badge.timemachine")
+          .font(.system(size: 25, weight: .semibold))
+          .foregroundStyle(theme.warning)
+      }
+
+      VStack(spacing: 7) {
+        Text("บันทึกต้นฉบับก่อน Apply")
+          .font(.system(.title3, design: .rounded).weight(.semibold))
+          .multilineTextAlignment(.center)
+        Text("ยังไม่มี Original Snapshot ของ \(target.name) ระบบต้องบันทึก settings.json ปัจจุบันไว้ก่อน เพื่อให้กู้คืนกลับสภาพก่อนใช้ Paenia ได้")
+          .font(.callout)
+          .foregroundStyle(.secondary)
+          .multilineTextAlignment(.center)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+      VStack(alignment: .leading, spacing: 5) {
+        Label(target.name, systemImage: "app.badge")
+          .font(.caption.weight(.semibold))
+        Text(target.settingsURL.path)
+          .font(.system(size: 10, design: .monospaced))
+          .foregroundStyle(.secondary)
+          .lineLimit(2)
+          .truncationMode(.middle)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(10)
+      .background(theme.surface(0.06), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+      if let errorMessage {
+        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+          .font(.caption)
+          .foregroundStyle(theme.danger)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(10)
+          .background(theme.danger.opacity(0.08), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+      }
+
+      HStack(spacing: 10) {
+        Button("ยกเลิก") {
+          model.pendingOriginalBackupTarget = nil
+        }
+        .keyboardShortcut(.cancelAction)
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .frame(maxWidth: .infinity)
+
+        Button {
+          do {
+            try model.confirmOriginalBackupBeforeApply(for: target)
+          } catch {
+            errorMessage = error.localizedDescription
+          }
+        } label: {
+          HStack(spacing: 6) {
+            Image(systemName: "tray.and.arrow.down.fill")
+            Text("บันทึกต้นฉบับ")
+          }
+        }
+        .keyboardShortcut(.defaultAction)
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .tint(theme.warning)
+        .frame(maxWidth: .infinity)
+      }
+      .padding(.top, 2)
+    }
+    .padding(24)
+    .frame(width: 430)
+  }
+}
 
 struct ConfirmApplySheet: View {
   @ObservedObject var model: ThemeModel
