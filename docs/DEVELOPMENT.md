@@ -14,7 +14,7 @@ build/Paenia.app
 
 `scripts/build.sh` pins the Swift deployment target to macOS 13.0 (`-target <arch>-apple-macos13.0`) so the Mach-O minimum OS matches `LSMinimumSystemVersion` in `Info.plist` instead of inheriting the latest SDK default.
 
-Current beta bundle version: `0.0.96-beta`.
+Current beta bundle version: `0.0.97-beta`.
 
 ### Disk image (`scripts/make_dmg.sh`)
 

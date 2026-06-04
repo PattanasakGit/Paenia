@@ -1,6 +1,36 @@
 import SwiftUI
 import AppKit
 
+enum GuidedTourAnchor: Hashable {
+  case targetMenu
+  case presetPicker
+  case modeToggle
+  case colorList
+  case mainPreview
+  case sectionPreview
+  case backupButton
+  case applyButton
+}
+
+struct GuidedTourAnchorPreferenceKey: PreferenceKey {
+  static var defaultValue: [GuidedTourAnchor: Anchor<CGRect>] = [:]
+
+  static func reduce(
+    value: inout [GuidedTourAnchor: Anchor<CGRect>],
+    nextValue: () -> [GuidedTourAnchor: Anchor<CGRect>]
+  ) {
+    value.merge(nextValue(), uniquingKeysWith: { _, next in next })
+  }
+}
+
+extension View {
+  func tourAnchor(_ anchor: GuidedTourAnchor) -> some View {
+    anchorPreference(key: GuidedTourAnchorPreferenceKey.self, value: .bounds) {
+      [anchor: $0]
+    }
+  }
+}
+
 // MARK: - Root
 
 struct ContentView: View {
@@ -19,9 +49,6 @@ struct ContentView: View {
     .toolbar { mainToolbar }
     .sheet(isPresented: $model.showPreferences) {
       PreferencesSheet(model: model)
-    }
-    .sheet(isPresented: $model.showGuidedTour) {
-      GuidedTourSheet(model: model)
     }
     .sheet(isPresented: $model.pendingApplyConfirmation) {
       ConfirmApplySheet(model: model)
@@ -65,6 +92,15 @@ struct ContentView: View {
     .animation(.easeInOut(duration: 0.25), value: model.appColorScheme)
     .onAppear {
       model.scheduleSilentUpdateCheck()
+    }
+    .overlayPreferenceValue(GuidedTourAnchorPreferenceKey.self) { anchors in
+      GeometryReader { proxy in
+        if model.showGuidedTour {
+          let frames = anchors.mapValues { proxy[$0] }
+          TourCoachOverlay(model: model, frames: frames, containerSize: proxy.size)
+            .transition(.opacity)
+        }
+      }
     }
     .confirmationDialog(
       "มีเวอร์ชันใหม่",
@@ -113,6 +149,7 @@ struct ContentView: View {
     // IDE selector — leftmost slot.
     ToolbarItem(placement: .navigation) {
       TargetMenu(model: model)
+        .tourAnchor(.targetMenu)
     }
 
     // Flexible spacer in the principal (center) slot — expands to fill all
@@ -130,6 +167,7 @@ struct ContentView: View {
       } label: {
         toolbarIcon("tray.and.arrow.down")
       }
+      .tourAnchor(.backupButton)
       .buttonStyle(.bordered)
       .controlSize(.large)
       .keyboardShortcut("b", modifiers: .command)
@@ -170,6 +208,7 @@ struct ContentView: View {
         }
         .padding(.horizontal, 6)
       }
+      .tourAnchor(.applyButton)
       .buttonStyle(.borderedProminent)
       .controlSize(.large)
       .disabled(model.isApplying)
@@ -521,6 +560,7 @@ struct ModeIconPicker: View {
       RoundedRectangle(cornerRadius: 9, style: .continuous)
         .stroke(theme.surface(0.06))
     )
+    .tourAnchor(.modeToggle)
   }
 
   private func modeTooltip(_ mode: EditorMode) -> String {
@@ -627,6 +667,7 @@ struct PresetPicker: View {
       // picker so palette/detailed editing context is visible alongside.
       ModeIconPicker(model: model)
     }
+    .tourAnchor(.presetPicker)
   }
 }
 
@@ -1194,6 +1235,7 @@ struct ColorListView: View {
       }
       .padding(14)
     }
+    .tourAnchor(.colorList)
   }
 }
 
@@ -1393,6 +1435,7 @@ struct InspectorView: View {
       VStack(alignment: .leading, spacing: 14) {
         section("LIVE PREVIEW · \(model.activeTarget.name)") {
           IDEPreview(model: model)
+            .tourAnchor(.mainPreview)
         }
       }
       .padding(.horizontal, 16)
@@ -1405,6 +1448,7 @@ struct InspectorView: View {
         VStack(alignment: .leading, spacing: 16) {
           section("SECTION PREVIEW · \(currentCategory.title)") {
             SectionDynamicPreview(model: model)
+              .tourAnchor(.sectionPreview)
           }
           section("LIVE DETAILS") {
             ComprehensiveIDEPreview(model: model)
@@ -2728,242 +2772,220 @@ struct StatusBar: View {
 
 // MARK: - Guided Tour
 
-struct GuidedTourSheet: View {
+struct TourCoachOverlay: View {
   @ObservedObject var model: ThemeModel
+  let frames: [GuidedTourAnchor: CGRect]
+  let containerSize: CGSize
   @Environment(\.themeChrome) private var theme
 
-  private struct TourStep {
+  private struct CoachStep {
+    let anchor: GuidedTourAnchor
     let title: String
-    let subtitle: String
+    let body: String
     let icon: String
-    let highlight: String
     let bullets: [String]
   }
 
-  private let steps: [TourStep] = [
-    TourStep(
-      title: "เลือก IDE ที่จะดูและ Apply",
-      subtitle: "เริ่มจาก target ด้านบน ก่อนแก้สีหรือ Apply",
+  private let steps: [CoachStep] = [
+    CoachStep(
+      anchor: .targetMenu,
+      title: "เลือก IDE ก่อนเริ่ม",
+      body: "เมนูนี้กำหนดว่า preview อ่านสีจาก IDE ไหน และ Apply จะส่งไป target ใดบ้าง",
       icon: "macwindow.on.rectangle",
-      highlight: "Target menu",
-      bullets: [
-        "Edit From คือ IDE ที่ใช้ดู live colors บนดิสก์",
-        "Apply To เลือกได้หลาย target ใน Settings",
-        "ถ้า path ไม่พร้อม แอปจะเตือนก่อนเขียนไฟล์"
-      ]
+      bullets: ["Edit From ใช้ดูค่าสีบนดิสก์", "Apply To เลือกหลาย editor ได้"]
     ),
-    TourStep(
-      title: "เลือก preset แล้วดู Live Preview",
-      subtitle: "Preview หลักคือภาพรวมธีมจริงก่อนแตะ settings.json",
-      icon: "rectangle.on.rectangle.angled",
-      highlight: "Live Preview",
-      bullets: [
-        "เปลี่ยน preset แล้ว preview อัปเดตทันที",
-        "กรอบ IDE แสดง border, terminal, tabs และ status bar",
-        "ยังไม่มีการเขียนไฟล์จนกว่าจะกด Apply"
-      ]
-    ),
-    TourStep(
-      title: "แก้ Palette หรือ Detailed",
-      subtitle: "Palette แก้สีหลัก, Detailed แก้ workbench key รายตัว",
+    CoachStep(
+      anchor: .presetPicker,
+      title: "เลือก Preset",
+      body: "เริ่มจาก preset แล้วค่อยปรับสีต่อ จะเห็น preview เปลี่ยนทันทีโดยยังไม่เขียน settings.json",
       icon: "paintpalette.fill",
-      highlight: "Palette / Detailed",
-      bullets: [
-        "Palette เหมาะกับปรับ mood ของธีมทั้งชุด",
-        "Detailed เหมาะกับ override จุดเล็ก ๆ",
-        "Section Preview แสดงผลตามหมวดที่กำลังแก้"
-      ]
+      bullets: ["Preset โหลด palette ทั้งชุด", "ยังไม่แตะไฟล์จริงจนกว่าจะ Apply"]
     ),
-    TourStep(
-      title: "Safe Demo: ลองได้ก่อน Apply",
-      subtitle: "การปรับสีในแอปเป็น preview state จนกว่าจะ confirm Apply",
+    CoachStep(
+      anchor: .modeToggle,
+      title: "Palette หรือ Detailed",
+      body: "Palette แก้สีหลักของธีม ส่วน Detailed ใช้ override workbench key เฉพาะจุด",
+      icon: "slider.horizontal.3",
+      bullets: ["Palette เหมาะกับ mood รวม", "Detailed เหมาะกับแก้จุดเล็ก"]
+    ),
+    CoachStep(
+      anchor: .colorList,
+      title: "Safe Demo Area",
+      body: "ลองแก้สีในรายการนี้ได้ก่อน ทุกอย่างเป็นสถานะในแอปจนกว่าจะยืนยัน Apply",
       icon: "hand.raised.fill",
-      highlight: "Safe edit area",
-      bullets: [
-        "ลองเปลี่ยนสี, reset group, reset all ได้ก่อนเขียนไฟล์",
-        "Save My Preset เก็บ palette เป็น snapshot ของคุณ",
-        "Reload จะดึงค่า theme.json และ target disk กลับมาใหม่"
-      ]
+      bullets: ["ดูผลใน preview ได้ทันที", "Reset Group / Reset All ย้อนค่าก่อนได้"]
     ),
-    TourStep(
-      title: "Backup และ Original Snapshot",
-      subtitle: "ก่อน Apply ครั้งแรกของ IDE ระบบจะบังคับเก็บ original ก่อน",
-      icon: "lock.shield.fill",
-      highlight: "Safety gate",
-      bullets: [
-        "Original Snapshot คือ settings.json ก่อน Paenia แตะ",
-        "Apply ทุกครั้งมี backup ปกติอีกชั้น",
-        "ถ้าไฟล์เสีย แอปจะหยุดและเสนอ restore จาก backup ที่ valid"
-      ]
+    CoachStep(
+      anchor: .mainPreview,
+      title: "Live Preview หลัก",
+      body: "กรอบนี้แสดงภาพรวม IDE จริง เช่น border, tabs, editor, terminal และ status bar",
+      icon: "rectangle.on.rectangle.angled",
+      bullets: ["ดูความสมดุลทั้งธีม", "สีอ่านจาก preview chain ล่าสุด"]
     ),
-    TourStep(
-      title: "Apply แบบมี modal ยืนยัน",
-      subtitle: "ขั้นสุดท้ายคือกด Apply แล้วตรวจ target ก่อนเขียนจริง",
+    CoachStep(
+      anchor: .sectionPreview,
+      title: "Section Preview",
+      body: "ส่วนนี้เปลี่ยนตามหมวดที่กำลังแก้ เพื่อบอกว่าสีในหมวดนั้นถูกใช้ตรงไหน",
+      icon: "scope",
+      bullets: ["เลือก category ซ้ายแล้วดูตัวอย่างเฉพาะจุด", "ช่วยลดการเดาสีผิดบริบท"]
+    ),
+    CoachStep(
+      anchor: .backupButton,
+      title: "Backup ก่อนเสี่ยง",
+      body: "ปุ่มนี้สร้าง snapshot ของ target ที่เลือกไว้ ใช้กู้คืนภายหลังได้",
+      icon: "tray.and.arrow.down.fill",
+      bullets: ["Original Snapshot ถูกบังคับก่อน Apply ครั้งแรก", "Regular backup เก็บก่อนเขียนจริง"]
+    ),
+    CoachStep(
+      anchor: .applyButton,
+      title: "Apply แบบมี Safety Gate",
+      body: "ปุ่มนี้เป็นจุดเดียวที่เขียน settings.json จริง ระบบจะมี modal ยืนยันและ backup guard ก่อนเสมอ",
       icon: "checkmark.seal.fill",
-      highlight: "Apply",
-      bullets: [
-        "Cursor และ VS Code-family targets ใช้ settings.json ของแต่ละตัว",
-        "ผลลัพธ์ Apply จะแสดง success, partial หรือ failure ชัดเจน",
-        "ถ้าสียังไม่เปลี่ยนใน IDE ให้ Reload Window ใน editor"
-      ]
+      bullets: ["ตรวจ target ก่อนเขียน", "ถ้าไฟล์เสียจะหยุดและเสนอ restore"]
     )
   ]
 
-  private var step: TourStep { steps[min(max(model.guidedTourStep, 0), steps.count - 1)] }
-  private var isLast: Bool { model.guidedTourStep >= steps.count - 1 }
+  private var index: Int {
+    min(max(model.guidedTourStep, 0), steps.count - 1)
+  }
+
+  private var step: CoachStep { steps[index] }
+  private var isLast: Bool { index == steps.count - 1 }
 
   var body: some View {
-    VStack(spacing: 0) {
-      HStack(alignment: .center, spacing: 12) {
+    ZStack {
+      Color.black.opacity(0.34)
+        .ignoresSafeArea()
+
+      let rect = resolvedRect(for: step.anchor)
+      highlight(rect)
+      coachBubble(for: rect)
+    }
+    .animation(.easeInOut(duration: 0.18), value: model.guidedTourStep)
+  }
+
+  private func highlight(_ rect: CGRect) -> some View {
+    RoundedRectangle(cornerRadius: 12, style: .continuous)
+      .stroke(theme.accent, lineWidth: 2)
+      .background(
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+          .fill(Color.clear)
+          .shadow(color: theme.accent.opacity(0.55), radius: 14)
+      )
+      .frame(width: max(36, rect.width + 16), height: max(32, rect.height + 16))
+      .position(x: rect.midX, y: rect.midY)
+      .allowsHitTesting(false)
+  }
+
+  private func coachBubble(for rect: CGRect) -> some View {
+    let width: CGFloat = 342
+    let bubbleHeight: CGFloat = 236
+    let placeBelow = rect.midY < containerSize.height * 0.55
+    let rawY = placeBelow ? rect.maxY + 142 : rect.minY - 142
+    let y = clamp(rawY, min: bubbleHeight / 2 + 18, max: containerSize.height - bubbleHeight / 2 - 18)
+    let x = clamp(rect.midX, min: width / 2 + 18, max: containerSize.width - width / 2 - 18)
+
+    return VStack(alignment: .leading, spacing: 12) {
+      HStack(alignment: .top, spacing: 10) {
         ZStack {
-          Circle().fill(theme.accent.opacity(0.16)).frame(width: 42, height: 42)
-          Image(systemName: "sparkles")
-            .font(.system(size: 18, weight: .semibold))
+          Circle().fill(theme.accent.opacity(0.15)).frame(width: 34, height: 34)
+          Image(systemName: step.icon)
+            .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(theme.accent)
         }
         VStack(alignment: .leading, spacing: 2) {
-          Text("โหมดสอนใช้งาน Paenia")
-            .font(.system(.title3, design: .rounded).weight(.bold))
-          Text("Step \(model.guidedTourStep + 1) / \(steps.count)")
-            .font(.caption)
+          Text(step.title)
+            .font(.system(.headline, design: .rounded).weight(.bold))
+          Text("Step \(index + 1) / \(steps.count)")
+            .font(.caption2.weight(.semibold))
             .foregroundStyle(.secondary)
         }
         Spacer()
-        Button {
-          model.finishGuidedTour()
-        } label: {
-          Image(systemName: "xmark")
-            .font(.system(size: 11, weight: .bold))
-            .frame(width: 24, height: 24)
-        }
-        .buttonStyle(.plain)
-        .help("ปิด tour และไม่แสดงอัตโนมัติอีก")
       }
-      .padding(20)
 
-      Divider().opacity(0.3)
+      Text(step.body)
+        .font(.callout)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
 
-      HStack(spacing: 0) {
-        tourPreview
-          .frame(width: 270)
-          .padding(20)
-        Divider().opacity(0.25)
-        VStack(alignment: .leading, spacing: 16) {
-          Label(step.highlight, systemImage: step.icon)
-            .font(.system(.caption, design: .rounded).weight(.bold))
-            .foregroundStyle(theme.accent)
-            .padding(.horizontal, 9).padding(.vertical, 5)
-            .background(theme.accent.opacity(0.10), in: Capsule())
-
-          VStack(alignment: .leading, spacing: 6) {
-            Text(step.title)
-              .font(.system(.title2, design: .rounded).weight(.bold))
-            Text(step.subtitle)
-              .font(.callout)
-              .foregroundStyle(.secondary)
+      VStack(alignment: .leading, spacing: 6) {
+        ForEach(step.bullets, id: \.self) { bullet in
+          HStack(alignment: .top, spacing: 7) {
+            Image(systemName: "checkmark.circle.fill")
+              .font(.caption)
+              .foregroundStyle(theme.success)
+              .padding(.top, 2)
+            Text(bullet)
+              .font(.caption)
               .fixedSize(horizontal: false, vertical: true)
           }
-
-          VStack(alignment: .leading, spacing: 10) {
-            ForEach(step.bullets, id: \.self) { bullet in
-              HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "checkmark.circle.fill")
-                  .font(.caption)
-                  .foregroundStyle(theme.success)
-                  .padding(.top, 2)
-                Text(bullet)
-                  .font(.callout)
-                  .fixedSize(horizontal: false, vertical: true)
-              }
-            }
-          }
-
-          Spacer()
         }
-        .padding(22)
       }
 
-      Divider().opacity(0.3)
-
-      HStack(spacing: 10) {
-        Button("ไม่ต้องแสดงอีก") {
+      HStack(spacing: 8) {
+        Button("ข้าม") {
+          model.finishGuidedTour(doNotShowAgain: false)
+        }
+        .buttonStyle(.bordered)
+        Button("ไม่แสดงอีก") {
           model.finishGuidedTour()
         }
         .buttonStyle(.bordered)
         Spacer()
         Button("ย้อนกลับ") {
-          model.guidedTourStep = max(0, model.guidedTourStep - 1)
+          model.guidedTourStep = max(0, index - 1)
         }
         .buttonStyle(.bordered)
-        .disabled(model.guidedTourStep == 0)
-        Button(isLast ? "เริ่มใช้งาน" : "ถัดไป") {
+        .disabled(index == 0)
+        Button(isLast ? "เสร็จสิ้น" : "ถัดไป") {
           if isLast {
             model.finishGuidedTour()
           } else {
-            model.guidedTourStep += 1
+            model.guidedTourStep = index + 1
           }
         }
         .buttonStyle(.borderedProminent)
-        .keyboardShortcut(.defaultAction)
       }
-      .padding(20)
     }
-    .frame(width: 720, height: 460)
-  }
-
-  private var tourPreview: some View {
-    VStack(spacing: 12) {
-      ZStack {
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
-          .fill(theme.surface(0.06))
-          .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-              .stroke(theme.accent.opacity(0.28), lineWidth: 1)
-          )
-          .shadow(color: theme.accent.opacity(0.16), radius: 14, y: 6)
-
-        VStack(spacing: 10) {
-          HStack(spacing: 6) {
-            Circle().fill(Color.red.opacity(0.9)).frame(width: 7, height: 7)
-            Circle().fill(Color.yellow.opacity(0.9)).frame(width: 7, height: 7)
-            Circle().fill(Color.green.opacity(0.9)).frame(width: 7, height: 7)
-            Spacer()
-          }
-          .padding(.horizontal, 12).padding(.top, 10)
-
-          tourHighlightRow("Target", icon: "cursorarrow.rays", active: model.guidedTourStep == 0)
-          tourHighlightRow("Preview", icon: "rectangle.on.rectangle", active: model.guidedTourStep == 1)
-          tourHighlightRow("Colors", icon: "paintpalette", active: model.guidedTourStep == 2 || model.guidedTourStep == 3)
-          tourHighlightRow("Backup", icon: "lock.shield", active: model.guidedTourStep == 4)
-          tourHighlightRow("Apply", icon: "checkmark.seal", active: model.guidedTourStep == 5)
-          Spacer(minLength: 0)
-        }
-      }
-      .frame(height: 260)
-
-      Text("Tour นี้เป็น guide overlay เท่านั้น ไม่เขียน settings.json")
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .multilineTextAlignment(.center)
-    }
-  }
-
-  private func tourHighlightRow(_ title: String, icon: String, active: Bool) -> some View {
-    HStack(spacing: 8) {
-      Image(systemName: icon)
-        .font(.system(size: 11, weight: .semibold))
-      Text(title)
-        .font(.system(.caption, design: .rounded).weight(.semibold))
-      Spacer()
-    }
-    .padding(.horizontal, 10).padding(.vertical, 8)
-    .foregroundStyle(active ? theme.accent : .secondary)
-    .background(active ? theme.accent.opacity(0.16) : theme.surface(0.04), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+    .padding(16)
+    .frame(width: width, alignment: .leading)
+    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     .overlay(
-      RoundedRectangle(cornerRadius: 9, style: .continuous)
-        .stroke(active ? theme.accent.opacity(0.45) : theme.surface(0.08), lineWidth: active ? 1 : 0.7)
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .stroke(theme.accent.opacity(0.26), lineWidth: 1)
     )
-    .padding(.horizontal, 12)
+    .shadow(color: .black.opacity(0.28), radius: 22, y: 12)
+    .position(x: x, y: y)
+  }
+
+  private func resolvedRect(for anchor: GuidedTourAnchor) -> CGRect {
+    if let frame = frames[anchor], frame.width > 1, frame.height > 1 {
+      return frame
+    }
+
+    let w = containerSize.width
+    switch anchor {
+    case .targetMenu:
+      return CGRect(x: max(240, w * 0.22), y: 12, width: 220, height: 38)
+    case .presetPicker:
+      return CGRect(x: 24, y: 150, width: 210, height: 70)
+    case .modeToggle:
+      return CGRect(x: 24, y: 230, width: 210, height: 44)
+    case .colorList:
+      return CGRect(x: max(290, w * 0.30), y: 170, width: max(280, w * 0.38), height: 330)
+    case .mainPreview:
+      return CGRect(x: w - 410, y: 150, width: 360, height: 230)
+    case .sectionPreview:
+      return CGRect(x: w - 410, y: 400, width: 360, height: 150)
+    case .backupButton:
+      return CGRect(x: w - 230, y: 12, width: 42, height: 38)
+    case .applyButton:
+      return CGRect(x: w - 126, y: 12, width: 110, height: 38)
+    }
+  }
+
+  private func clamp(_ value: CGFloat, min minValue: CGFloat, max maxValue: CGFloat) -> CGFloat {
+    Swift.min(Swift.max(value, minValue), maxValue)
   }
 }
 

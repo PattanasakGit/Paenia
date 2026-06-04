@@ -57,7 +57,7 @@ To expose the same `.dmg` on **PaeniaWeb**, set `githubRepo` / `releaseTag` / `d
 
 ### Publish the `.dmg` on GitHub
 
-1. Commit and push the Paenia repo, then create a **tag** matching `releaseTag` (e.g. `v0.0.96-beta` for a beta build).
+1. Commit and push the Paenia repo, then create a **tag** matching `releaseTag` (e.g. `v0.0.97-beta` for a beta build).
 2. **Releases → Draft a release** → choose that tag → upload `build/Paenia-<version>-macos.dmg` from `./scripts/make_dmg.sh`.
 3. Publish the release. The site link is `https://github.com/<owner>/<repo>/releases/download/<tag>/<dmgFileName>`.
 4. If the DMG bytes change, run `shasum -a 256` on the new file and update `PaeniaWeb/lib/download.ts` (`sha256`, and `fileSize` if needed).
